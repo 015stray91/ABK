@@ -416,6 +416,7 @@ fun SettingsScreen(
                         uiSurfaceAlpha = state.uiSurfaceAlpha,
                         blurEnabled = state.blurEnabled,
                         blurBackgroundExpEnabled = state.blurBackgroundExpEnabled,
+                        predictiveBackEnabled = state.predictiveBackEnabled,
                         onThemeModeChange = { value -> vm.setThemeMode(value) },
                         onDynamicColorEnabledChange = { enabled, themeColor, accentColor ->
                             vm.setDynamicColorEnabled(enabled, themeColor, accentColor)
@@ -429,6 +430,7 @@ fun SettingsScreen(
                         onUiSurfaceAlphaPreviewChange = { alpha -> vm.setUiSurfaceAlphaPreview(alpha) },
                         onBlurEnabledChange = vm::setBlurEnabled,
                         onBlurBackgroundExpEnabledChange = vm::setBlurBackgroundExpEnabled,
+                        onPredictiveBackEnabledChange = vm::setPredictiveBackEnabled,
                         onUiSurfaceAlphaSync = vm::syncUiSurfaceAlphaPreview
                     )
                 }
@@ -1030,16 +1032,6 @@ private fun SettingsMainContent(
                 subtitle = stringResource(R.string.settings_notify_build_desc),
                 checked = state.notifyBuild,
                 onCheckedChange = { vm.setNotifyBuild(it) }
-            )
-        }
-
-        SettingsGroup(title = stringResource(R.string.settings_navigation)) {
-            SwitchSettingsItem(
-                icon = Icons.Default.ArrowBack,
-                title = stringResource(R.string.settings_predictive_back),
-                subtitle = stringResource(R.string.settings_predictive_back_desc),
-                checked = state.predictiveBackEnabled,
-                onCheckedChange = { vm.setPredictiveBackEnabled(it) }
             )
         }
 
@@ -2107,6 +2099,7 @@ private fun ThemeSettingsScreen(
     uiSurfaceAlpha: Float,
     blurEnabled: Boolean,
     blurBackgroundExpEnabled: Boolean,
+    predictiveBackEnabled: Boolean,
     onThemeModeChange: (String) -> Unit,
     onDynamicColorEnabledChange: (Boolean, Int?, Int?) -> Unit,
     onCustomThemeColorsChange: (Int, Int) -> Unit,
@@ -2116,6 +2109,7 @@ private fun ThemeSettingsScreen(
     onUiSurfaceAlphaPreviewChange: (Float) -> Unit,
     onBlurEnabledChange: (Boolean) -> Unit,
     onBlurBackgroundExpEnabledChange: (Boolean) -> Unit,
+    onPredictiveBackEnabledChange: (Boolean) -> Unit,
     onUiSurfaceAlphaSync: () -> Unit
 ) {
     // An interrupted slider drag (back gesture / backgrounding / the slider being
@@ -2218,6 +2212,16 @@ private fun ThemeSettingsScreen(
                     }
                 )
             }
+        }
+
+        SettingsGroup(title = stringResource(R.string.settings_navigation)) {
+            SwitchSettingsItem(
+                icon = Icons.Default.SwipeLeft,
+                title = stringResource(R.string.settings_predictive_back),
+                subtitle = stringResource(R.string.settings_predictive_back_desc),
+                checked = predictiveBackEnabled,
+                onCheckedChange = onPredictiveBackEnabledChange
+            )
         }
 
         SettingsGroup(title = stringResource(R.string.settings_background)) {
@@ -3023,7 +3027,7 @@ private fun SettingsGroup(title: String, content: @Composable ColumnScope.() -> 
             stringResource(R.string.settings_security) -> Icons.Default.VerifiedUser
             stringResource(R.string.settings_app_update) -> Icons.Default.Download
             stringResource(R.string.settings_notification) -> Icons.Default.Notifications
-            stringResource(R.string.settings_navigation) -> Icons.Default.ArrowBack
+            stringResource(R.string.settings_navigation) -> Icons.Default.SwipeLeft
             stringResource(R.string.settings_language) -> Icons.Default.Language
             stringResource(R.string.settings_theme) -> Icons.Default.Palette
             "BakaSU", "SukiSU", "KernelSU" -> Icons.Default.AdminPanelSettings
