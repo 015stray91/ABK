@@ -6252,7 +6252,14 @@ jobs:
               "KSU_GET_INFO_FLAG_MANAGER" \
               "ABK_CONTROL_IOCTL_GET_STATUS"
 
-            if grep -qF "TRACK_THRONE_FORCE_SEARCH_MGR" "$ksu_dir/manager/throne_tracker.h"; then
+            # 必须与 ABK_control_module 的 abk_control_ksu_patch.py::is_bakasu_tracker()
+            # 保持一致：上游 2026-10-05 改名 ReSukiSU -> BakaSU 时已将
+            # TRACK_THRONE_FORCE_SEARCH_MGR 换成 TRACK_THRONE_FORCE_SYNCHRONOUS
+            # (ABK_control_module#0f2947d)，此处若不同步会在真正的 BakaSU tracker 上
+            # 误判为"需要移植"，导致本不存在的 manager_identity.h 桥接标记校验失败。
+            if grep -qF "do_track_throne" "$ksu_dir/manager/throne_tracker.c" \
+              && grep -qF "track_throne(unsigned int flags)" "$ksu_dir/manager/throne_tracker.h" \
+              && grep -qF "TRACK_THRONE_FORCE_SYNCHRONOUS" "$ksu_dir/manager/throne_tracker.h"; then
               echo "检测到 BakaSU 多管理器实现，跳过 KernelSU/SukiSU 多管理器移植标记。"
             else
               require_marker "$ksu_dir/manager/manager_identity.h" \
