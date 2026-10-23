@@ -132,7 +132,7 @@ on:
       build_time:
         required: false
         type: string
-        default: "Sun Dec 01 08:10:00 UTC 2024"
+        default: 
       use_zram:
         required: true
         type: boolean
