@@ -1,0 +1,162 @@
+name: NetHunter genevn 内核构建
+
+permissions:
+  contents: write
+  actions: write
+
+# TOOLCHAIN CONTRACT: ubuntu-22.04 + regular clang-r416183b 12.0.5.
+# NH base profile: ksu-nh.defconfig + vendor/ext_config/debug_moto_parrot_genevn.config
+# (mirrors Nethunter-Kernel-Builder repos.json genevn entry).
+# NOTE: external wireless drivers (rtl8812au etc.) attach post-build — phase 2.
+
+on:
+  workflow_dispatch:
+    inputs:
+      kernel_repo:
+        description: "Kernel source repo"
+        required: false
+        type: string
+        default: 015stray91/AR-NUKI-genevn
+      kernel_ref:
+        description: "Kernel source ref"
+        required: false
+        type: string
+        default: main
+      defconfig:
+        description: "Base defconfig"
+        required: false
+        type: string
+        default: ksu-nh.defconfig
+      ext_config:
+        description: "Moto ext config fragment"
+        required: false
+        type: string
+        default: vendor/ext_config/debug_moto_parrot_genevn.config
+      with_kernelsu:
+        description: "Keep in-tree KernelSU-Next"
+        required: false
+        type: boolean
+        default: true
+  workflow_call:
+    inputs:
+      kernel_repo:
+        required: false
+        type: string
+        default: 015stray91/AR-NUKI-genevn
+      kernel_ref:
+        required: false
+        type: string
+        default: main
+      defconfig:
+        required: false
+        type: string
+        default: ksu-nh.defconfig
+      ext_config:
+        required: false
+        type: string
+        default: vendor/ext_config/debug_moto_parrot_genevn.config
+      with_kernelsu:
+        required: false
+        type: boolean
+        default: true
+
+jobs:
+  build:
+    name: "nethunter-genevn-${{ inputs.defconfig }}"
+    runs-on: ubuntu-22.04
+    timeout-minutes: 180
+
+    steps:
+      - name: 校验构建环境 (contract)
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(lsb_release -rs)" = "22.04" || {
+            echo "::error::runner 必须是 ubuntu-22.04"; exit 1; }
+
+      - name: 安装依赖
+        shell: bash
+        run: |
+          set -euo pipefail
+          sudo apt-get update -y
+          sudo apt-get install -y bc bison flex libssl-dev libelf-dev dwarves \
+            ccache curl git zip unzip
+
+      - name: 克隆源码与工具链
+        shell: bash
+        run: |
+          set -euo pipefail
+          rm -rf nh_workspace && mkdir -p nh_workspace && cd nh_workspace
+          git clone --depth 1 --branch "${{ inputs.kernel_ref }}" \
+            "https://github.com/${{ inputs.kernel_repo }}.git" kernel
+          git clone --depth 1 --branch tools --sparse \
+            https://github.com/015stray91/android-kernel-tools.git tools
+          cd tools && git sparse-checkout set clang && cd ..
+          mkdir -p kernel/tools/toolchains/snapdragon-toolchain
+          ln -sfn "$GITHUB_WORKSPACE/nh_workspace/tools/clang/host/linux-x86/clang-r416183b" \
+            kernel/tools/toolchains/snapdragon-toolchain/clang-r416183b
+          ./tools/clang/host/linux-x86/clang-r416183b/bin/clang --version | grep -q '12.0.5'
+
+      - name: 合并 NH 配置
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd "$GITHUB_WORKSPACE/nh_workspace/kernel"
+          test -f "arch/arm64/configs/${{ inputs.defconfig }}" || {
+            echo "::error::defconfig 缺失: ${{ inputs.defconfig }}"; exit 1; }
+          test -f "arch/arm64/configs/${{ inputs.ext_config }}" || {
+            echo "::error::ext_config 缺失: ${{ inputs.ext_config }}"; exit 1; }
+          mkdir -p out
+          ARCH=arm64 scripts/kconfig/merge_config.sh -m -O out \
+            "arch/arm64/configs/${{ inputs.defconfig }}" \
+            "arch/arm64/configs/${{ inputs.ext_config }}"
+          # NH 输入是 Kconfig 标志 (5.10), 不是补丁文件
+          NHFRAG="$GITHUB_WORKSPACE/nh_workspace/nh-flags.fragment"
+          cat > "$NHFRAG" <<'NHFLAGS'
+          CONFIG_CFG80211=y
+          CONFIG_MAC80211=y
+          CONFIG_WLAN=y
+          CONFIG_RFKILL=y
+          CONFIG_PACKET=y
+          CONFIG_USB_SERIAL=y
+          CONFIG_USB_SERIAL_OPTION=y
+          CONFIG_USB_SERIAL_FTDI_SIO=y
+          CONFIG_USB_SERIAL_PL2303=y
+          CONFIG_USB_SERIAL_CP210X=y
+          CONFIG_USB_SERIAL_CH341=y
+          CONFIG_USB_F_HID=y
+          NHFLAGS
+          ARCH=arm64 scripts/kconfig/merge_config.sh -m -O out "out/.config" "$NHFRAG"
+          grep -E 'CONFIG_(KSU|WLAN|CFG80211|USB_SERIAL)=y' out/.config || true
+
+      - name: 编译内核
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd "$GITHUB_WORKSPACE/nh_workspace/kernel"
+          SDC="$GITHUB_WORKSPACE/nh_workspace/tools/clang/host/linux-x86/clang-r416183b"
+          export PATH="/usr/lib/ccache:$SDC/bin:$PATH"
+          export LD_LIBRARY_PATH="/lib/x86_64-linux-gnu:/usr/lib/x86_64-linux-gnu"
+          export KBUILD_BUILD_USER="abk" KBUILD_BUILD_HOST="abk" KBUILD_BUILD_VERSION=1
+          make -j"$(nproc --all)" LLVM=1 LLVM_IAS=1 ARCH=arm64 \
+            CC="ccache clang" LD=ld.lld HOSTLD=ld.lld O=out Image.gz modules
+          ls -la out/arch/arm64/boot/Image.gz
+
+      - name: 打包 AnyKernel3
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd "$GITHUB_WORKSPACE/nh_workspace"
+          git clone --depth 1 https://github.com/015stray91/Genevn-sm6450_AnyKernel.git AnyKernel3
+          rm -rf AnyKernel3/.git
+          cp kernel/out/arch/arm64/boot/Image.gz AnyKernel3/Image.gz
+          cp kernel/out/.config AnyKernel3/config-nh-genevn
+          cd AnyKernel3
+          zip -q -r9 "../genevn_nethunter_AnyKernel3.zip" ./*
+
+      - name: 上传产物
+        uses: actions/upload-artifact@v6
+        with:
+          name: genevn_nethunter_AnyKernel3
+          path: nh_workspace/*.zip
+          if-no-files-found: error

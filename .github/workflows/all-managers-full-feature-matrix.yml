@@ -172,7 +172,7 @@ jobs:
           import re
           import sys
 
-          variant_order = ["Official", "SukiSU", "BakaSU", "None"]
+          variant_order = ["Official", "SukiSU", "BakaSU", "KernelSU-Next", "None"]
           variant_aliases = {
               "official": "Official",
               "sukisu": "SukiSU",
@@ -180,6 +180,8 @@ jobs:
               # Retired spelling of "bakasu": older app builds and saved matrix configs can
               # still dispatch with it, so keep resolving it to the renamed variant.
               "resukisu": "BakaSU",
+              "kernelsunext": "KernelSU-Next",
+              "ksunext": "KernelSU-Next",
               "none": "None",
           }
 

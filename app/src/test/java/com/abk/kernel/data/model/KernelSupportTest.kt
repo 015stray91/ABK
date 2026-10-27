@@ -315,4 +315,51 @@ class KernelSupportTest {
         )
         assertEquals("6.6.50", custom.sourceKernelVersionOverride)
     }
+
+    @Test
+    fun normalizeGStylusUsesGenevnProfileAndNextVariant() {
+        val normalized = KernelSupport.normalize(
+            KernelBuildConfig(
+                buildTarget = BUILD_TARGET_G_STYLUS,
+                gStylusDeviceManifest = "sm6450-genevn-2023",
+                kernelsuVariant = KSU_VARIANT_NEXT,
+            )
+        )
+        assertEquals("sm6450_v1-2023-5g", normalized.gStylusCpu)
+        assertEquals("android12-9_v1", normalized.androidVersion)
+        assertEquals("5.10_v1", normalized.kernelVersion)
+        assertEquals(KSU_VARIANT_NEXT, normalized.kernelsuVariant)
+        assertEquals("233", normalized.subLevel)
+    }
+
+    @Test
+    fun normalizeGStylusStripsGkiOnlyFlags() {
+        val normalized = KernelSupport.normalize(
+            KernelBuildConfig(
+                buildTarget = BUILD_TARGET_G_STYLUS,
+                gStylusDeviceManifest = "sm6450-genevn-2023",
+                useZram = true,
+                useDdk = true,
+                virtualizationSupport = "on",
+            )
+        )
+        assertFalse(normalized.useZram)
+        assertFalse(normalized.useDdk)
+        assertEquals("off", normalized.virtualizationSupport)
+    }
+
+    @Test
+    fun gStylusKpmSupportedOnlyForNextVariant() {
+        assertTrue(KernelSupport.isKpmSupported(BUILD_TARGET_G_STYLUS, KSU_VARIANT_NEXT, KSU_BRANCH_STABLE))
+        assertFalse(KernelSupport.isKpmSupported(BUILD_TARGET_G_STYLUS, KSU_VARIANT_SUKISU, KSU_BRANCH_STABLE))
+        assertFalse(KernelSupport.isKpmSupported(BUILD_TARGET_G_STYLUS, KSU_VARIANT_OFFICIAL, KSU_BRANCH_STABLE))
+    }
+
+    @Test
+    fun motoDeviceLabelUsesProfile() {
+        assertEquals(
+            "Moto G Stylus 5G 2023 · Android 12-14 · android12-9_v1/5.10_v1 · sm6450_v1-2023-5g",
+            KernelSupport.motoDeviceLabel("sm6450-genevn-2023")
+        )
+    }
 }

@@ -4941,7 +4941,7 @@ class MainViewModel @JvmOverloads constructor(
 
     fun upsertCustomKernelOption(option: CustomKernelOption, editingIndex: Int? = null) {
         val currentConfig = KernelSupport.normalize(_uiState.value.buildConfig)
-        if (currentConfig.buildTarget == BUILD_TARGET_ONEPLUS) return
+        if (currentConfig.buildTarget == BUILD_TARGET_ONEPLUS || currentConfig.buildTarget == BUILD_TARGET_G_STYLUS) return
         val symbol = KernelSupport.normalizeCustomKernelSymbol(option.symbol)
         require(symbol.isNotBlank()) { text(R.string.build_kernel_option_symbol_invalid) }
         val normalizedOption = CustomKernelOption(
@@ -4972,7 +4972,7 @@ class MainViewModel @JvmOverloads constructor(
 
     fun removeCustomKernelOptions(indices: Collection<Int>) {
         val currentConfig = KernelSupport.normalize(_uiState.value.buildConfig)
-        if (currentConfig.buildTarget == BUILD_TARGET_ONEPLUS) return
+        if (currentConfig.buildTarget == BUILD_TARGET_ONEPLUS || currentConfig.buildTarget == BUILD_TARGET_G_STYLUS) return
         val updated = removeCustomKernelOptionsAtIndices(currentConfig.customKernelOptions, indices)
         if (updated == currentConfig.customKernelOptions) return
         updateBuildConfig(currentConfig.copy(customKernelOptions = updated))
@@ -4980,7 +4980,7 @@ class MainViewModel @JvmOverloads constructor(
 
     fun clearCustomKernelOptions() {
         val currentConfig = KernelSupport.normalize(_uiState.value.buildConfig)
-        if (currentConfig.buildTarget == BUILD_TARGET_ONEPLUS || currentConfig.customKernelOptions.isEmpty()) return
+        if (currentConfig.buildTarget == BUILD_TARGET_ONEPLUS || currentConfig.buildTarget == BUILD_TARGET_G_STYLUS || currentConfig.customKernelOptions.isEmpty()) return
         updateBuildConfig(currentConfig.copy(customKernelOptions = emptyList()))
     }
 
@@ -5763,6 +5763,11 @@ internal fun defaultBuildPlanName(config: KernelBuildConfig): String {
             .filter { it.isNotBlank() }
             .joinToString(" · ")
     }
+    if (config.buildTarget == BUILD_TARGET_G_STYLUS) {
+        return listOf(KernelSupport.motoDeviceLabel(config.gStylusDeviceManifest), config.kernelsuVariant)
+            .filter { it.isNotBlank() }
+            .joinToString(" · ")
+    }
     if (config.buildTarget == BUILD_TARGET_CUSTOM_SOURCE) {
         val sourceName = config.sourceDeviceLabel.ifBlank {
             config.sourceUrl.substringAfterLast('/').removeSuffix(".git")
@@ -6076,7 +6081,9 @@ internal fun decodeBuildPlanPayload(
         onePlusUseLz4kd = featureMask.hasBuildPlanFlag(11),
         onePlusUseBbr = featureMask.hasBuildPlanFlag(12),
         onePlusUseProxyOptimization = featureMask.hasBuildPlanFlag(13),
-        onePlusUseUnicodeBypass = featureMask.hasBuildPlanFlag(14)
+        onePlusUseUnicodeBypass = featureMask.hasBuildPlanFlag(14),
+        useZeromount = featureMask.hasBuildPlanFlag(15),
+        useNethunter = featureMask.hasBuildPlanFlag(16)
     )
     return DecodedBuildPlanCode(
         name = name,
@@ -6177,6 +6184,8 @@ private fun KernelBuildConfig.toBuildPlanFeatureMask(): Int {
     set(12, onePlusUseBbr)
     set(13, onePlusUseProxyOptimization)
     set(14, onePlusUseUnicodeBypass)
+    set(15, useZeromount)
+    set(16, useNethunter)
     return mask
 }
 
@@ -6727,6 +6736,24 @@ internal fun KernelBuildConfig.toInputMap(): Map<String, String> {
             "use_unicode_bypass" to config.onePlusUseUnicodeBypass.toString()
         )
     }
+    if (config.buildTarget == BUILD_TARGET_G_STYLUS) {
+        return mapOf(
+            "cpu" to config.gStylusCpu,
+            "device_manifest" to config.gStylusDeviceManifest,
+            "android_version" to config.androidVersion,
+            "kernel_version" to config.kernelVersion,
+            "ksu_variant" to config.kernelsuVariant,
+            "enable_susfs" to (!config.cancelSusfs && config.kernelsuVariant != KSU_VARIANT_NONE).toString(),
+            "use_kpm" to config.useKpm.toString(),
+            "use_lz4kd" to config.gStylusUseLz4kd.toString(),
+            "use_bbg" to config.useBbg.toString(),
+            "use_zeromount" to config.useZeromount.toString(),
+            "use_nethunter" to config.useNethunter.toString(),
+            "use_bbr" to config.gStylusUseBbr.toString(),
+            "use_proxy_optimization" to config.gStylusUseProxyOptimization.toString(),
+            "use_unicode_bypass" to config.gStylusUseUnicodeBypass.toString()
+        )
+    }
     return mapOf(
         "android_version" to config.androidVersion,
         "kernel_version" to config.kernelVersion,
@@ -6807,6 +6834,7 @@ private const val FORK_CUSTOM_SOURCE_SECRET_NAME = "ABK_CUSTOM_SOURCE_GITHUB_TOK
 private const val FORK_ARTIFACT_SIGNING_RELEASE_TAG = "abk-artifact-key"
 private const val FORK_ARTIFACT_SIGNING_PUBLIC_KEY_ASSET_NAME = "abk-artifact-signing-public.pem"
 private const val ONEPLUS_WORKFLOW_FILE = "oneplus-custom.yml"
+private const val GSTYLUS_WORKFLOW_FILE = "g_stylus-custom.yml"
 private val buildWorkflowFiles = listOf(KERNEL_WORKFLOW_FILE, CUSTOM_SOURCE_WORKFLOW_FILE, ONEPLUS_WORKFLOW_FILE)
 private const val MIRROR_WORKFLOW_FILE = "mirror-custom-artifacts.yml"
 private val ACTIVE_BUILD_STATUSES = setOf(BuildStatus.QUEUED, BuildStatus.IN_PROGRESS)
@@ -6839,6 +6867,7 @@ private data class Quadruple<A, B, C, D>(val a: A, val b: B, val c: C, val d: D)
 private fun workflowFileFor(config: KernelBuildConfig): String =
     when (KernelSupport.normalizeBuildTarget(config.buildTarget)) {
         BUILD_TARGET_ONEPLUS -> ONEPLUS_WORKFLOW_FILE
+        BUILD_TARGET_G_STYLUS -> GSTYLUS_WORKFLOW_FILE
         BUILD_TARGET_CUSTOM_SOURCE -> CUSTOM_SOURCE_WORKFLOW_FILE
         else -> KERNEL_WORKFLOW_FILE
     }

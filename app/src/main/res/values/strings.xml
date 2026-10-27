@@ -1511,4 +1511,20 @@
     <string name="settings_kernel_runner_saved">已保存到 GitHub</string>
     <string name="settings_kernel_runner_saving">正在保存…</string>
     <string name="settings_kernel_runner_request_failed">未能完成 GitHub 仓库变量请求，请刷新后重试。</string>
+    <string name="build_target_g_stylus">Moto G Stylus</string>
+    <string name="build_enable_zeromount">启用 ZeroMount 隐形挂载</string>
+    <string name="build_enable_nethunter">启用 NetHunter 无线栈</string>
+    <string name="build_g_stylus_device_manifest">Moto 机型配置</string>
+    <string name="build_g_stylus_susfs_unsupported">该版本组合不支持 SUSFS</string>
+    <string name="build_g_stylus_lz4kd">启用 lz4kd (ZRAM)</string>
+    <string name="build_g_stylus_bbr">启用 BBR</string>
+    <string name="build_g_stylus_proxy_optimization">启用代理相关网络优化</string>
+    <string name="build_g_stylus_unicode_bypass">启用 Unicode 零宽绕过修复</string>
+    <string name="build_g_stylus_proxy_short">代理优化</string>
+    <string name="build_g_stylus_unicode_short">Unicode修复</string>
+    <string name="build_g_stylus_ksu_branch_desc">G Stylus 构建使用对应 KernelSU 上游默认分支。</string>
+    <string name="build_g_stylus_hero_desc">使用 Moto genevn 配置构建机型专用 AnyKernel3 包。</string>
+    <string name="build_g_stylus_device_line">Moto 机型: %1$s</string>
+    <string name="build_g_stylus_kernel_line">Moto KMI: %1$s · 内核 %2$s</string>
+    <string name="build_g_stylus_cpu">Moto CPU 分支</string>
 </resources>

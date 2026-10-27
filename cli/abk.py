@@ -126,6 +126,7 @@ WORKFLOWS = {
     "custom": {"file": "kernel-custom.yml", "name": t("build_target_custom")},
     "source": {"file": "kernel-source.yml", "name": t("build_target_source")},
     "oneplus": {"file": "oneplus-custom.yml", "name": t("build_target_oneplus")},
+    "g_stylus": {"file": "g_stylus-custom.yml", "name": t("build_target_g_stylus")},
 }
 
 ANDROID_VERSIONS = ["android12", "android13", "android14", "android15", "android16"]
@@ -133,13 +134,15 @@ KERNEL_VERSIONS = ["5.10", "5.15", "6.1", "6.6", "6.12"]
 
 MATRIX_TARGETS = ["a12", "a13", "a14", "a15", "a16"]
 MATRIX_TARGETS_ALL = MATRIX_TARGETS + ["both", "full", "all-managers"]
-KSU_ALL_VARIANTS = ["Official", "SukiSU", "BakaSU"]
+KSU_ALL_VARIANTS = ["Official", "SukiSU", "BakaSU", "KernelSU-Next"]
 MANAGER_VARIANT_ALIASES = {
     "official": "Official",
     "sukisu": "SukiSU",
     "bakasu": "BakaSU",
     # Retired spelling of "bakasu"; older app builds can still dispatch with it.
     "resukisu": "BakaSU",
+    "kernelsunext": "KernelSU-Next",
+    "ksunext": "KernelSU-Next",
     "none": "None",
 }
 
@@ -160,11 +163,14 @@ WORKFLOW_RUNTIME_NAMES = {
     "kernel-custom.yml": "Android 内核构建-自定义",
     "kernel-source.yml": "Android 内核构建-类 LineageOS 源码",
     "oneplus-custom.yml": "OnePlus 内核构建-自定义",
+    "oneplus-full-feature-matrix.yml": "OnePlus 全矩阵内核构建",
+    "g_stylus-custom.yml": "Motorola Kernel Build - Custom",
+    "g_stylus-full-feature-matrix.yml": "G Stylus 全矩阵内核构建",
     "kernel-full-feature-matrix.yml": "全属性内核构建矩阵",
     "all-managers-full-feature-matrix.yml": "全管理器全矩阵编译",
 }
 
-KSU_VARIANTS = ["None", "Official", "SukiSU", "BakaSU"]
+KSU_VARIANTS = ["None", "Official", "SukiSU", "BakaSU", "KernelSU-Next"]
 KSU_BRANCH_MAP = {
     "stable": "Stable(标准)", "Stable": "Stable(标准)",
     "latest": "Latest(最新)", "Latest": "Latest(最新)",
@@ -189,13 +195,15 @@ def resolve_plan_ksu_branch(variant, branch):
     return resolve_ksu_branch(branch)
 
 
-def supports_kpm(variant, ksu_branch=None, *, oneplus=False):
+def supports_kpm(variant, ksu_branch=None, *, oneplus=False, g_stylus=False):
     """Return whether the selected KernelSU source exposes KPM.
 
     Keep this aligned with Android's KernelSupport.isKpmSupported contract.
     """
     if oneplus:
         return variant in {"SukiSU", "BakaSU"}
+    if g_stylus:
+        return variant == "KernelSU-Next"
     if variant == "SukiSU":
         return True
     if variant != "BakaSU":
@@ -270,6 +278,18 @@ ONEPLUS_SUSFS_SUPPORTED = {
     ("android14", "6.1"),
     ("android15", "6.6"),
     ("android16", "6.12"),
+}
+
+GSTYLUS_DEVICES = {
+    "sm6450-genevn-2023": {"name": "Moto G Stylus 5G 2023", "codename": "genevn", "cpu": "sm6450_v1-2023-5g", "android": "android12-9_v1", "kernel": "5.10_v1"},
+    "sm6450-boston-2024": {"name": "Moto G Stylus 5G 2024", "codename": "boston", "cpu": "sm6450_v2-2024-5g", "android": "android12-9_v1", "kernel": "5.10_v1"},
+    "sm6475_ab-houston-2025": {"name": "Moto Houston 2025", "codename": "houston", "cpu": "sm6475_a/b-2025-5g", "android": "android16", "kernel": "6.12"},
+    "sm6475_ab-dallas-2026": {"name": "Moto Dallas 2026", "codename": "dallas", "cpu": "sm6475_a/b-2026-5g", "android": "android16", "kernel": "6.12"},
+}
+
+GSTYLUS_SUSFS_SUPPORTED = {
+    ("android12-9_v1", "5.10_v1"),
+    ("android12-9_v1", "5.10_v2"),
 }
 
 UNSAFE_WORKFLOW_TEXT_CHARS = frozenset(('"', "'", "`", "$", "\\"))
@@ -559,7 +579,7 @@ def invalid_build_argument(args):
     if ref and not _valid_git_ref(ref):
         return "--ref"
 
-    if not getattr(args, "oneplus", False):
+    if not getattr(args, "oneplus", False) and not getattr(args, "g_stylus", False):
         custom_ref = getattr(args, "custom_ref", None)
         if custom_ref and not _valid_git_ref(custom_ref, allow_history_suffix=True):
             return "--custom-ref"
@@ -684,6 +704,60 @@ def validate_oneplus_build(args, device_info=None):
                 args.susfs = False
                 warnings.append(t("op_no_susfs", android=android, kernel=kernel))
         
+    return errors, warnings
+
+
+def validate_g_stylus_build(args, device_info=None):
+    errors = []
+    warnings = []
+
+    if args.zram:
+        args.zram = False
+        warnings.append(t("gs_no_zram"))
+    if args.ddk:
+        args.ddk = False
+        warnings.append(t("gs_no_ddk"))
+    if args.ntsync:
+        args.ntsync = False
+        warnings.append(t("gs_no_ntsync"))
+    if args.networking:
+        args.networking = False
+        warnings.append(t("gs_no_networking"))
+    if args.rekernel:
+        args.rekernel = False
+        warnings.append(t("gs_no_rekernel"))
+    if args.virt and args.virt != "off":
+        args.virt = "off"
+        warnings.append(t("gs_no_virt"))
+    if args.custom_ref:
+        args.custom_ref = ""
+        warnings.append(t("gs_no_custom_ref"))
+    if args.zram_full_algo:
+        args.zram_full_algo = False
+        warnings.append(t("gs_no_zram_algo"))
+    if args.zram_extra_algos:
+        args.zram_extra_algos = ""
+        warnings.append(t("gs_no_zram_extra"))
+    if args.custom_modules:
+        args.custom_modules = ""
+        warnings.append(t("gs_no_custom_modules"))
+    if args.kpm_password:
+        args.kpm_password = ""
+        warnings.append(t("gs_no_kpm_password"))
+
+    if device_info:
+        android = device_info.get("android", "")
+        kernel = device_info.get("kernel", "")
+        codename = device_info.get("codename", "")
+
+        if codename != "genevn":
+            errors.append(t("err_gs_only_genevn", device=codename))
+
+        if (android, kernel) not in GSTYLUS_SUSFS_SUPPORTED:
+            if args.susfs:
+                args.susfs = False
+                warnings.append(t("gs_no_susfs", android=android, kernel=kernel))
+
     return errors, warnings
 
 
@@ -4612,7 +4686,7 @@ def cmd_build(args):
     effective_ksu_variant = args.ksu_variant or (
         "None" if source_mode else "BakaSU"
     )
-    if not args.oneplus:
+    if not args.oneplus and not args.g_stylus:
         if args.custom_ref and effective_ksu_variant == "None":
             message = "--custom-ref cannot be used with --ksu None"
             print(message, file=sys.stderr)
@@ -4696,6 +4770,36 @@ def cmd_build(args):
             return 2
 
     device_info = None
+    if args.g_stylus:
+        if not args.device:
+            message = t("err_gs_need_device")
+            print(message, file=sys.stderr)
+            _set_build_error(args, message, "invalid_arguments")
+            return 2
+        device_info = GSTYLUS_DEVICES.get(args.device)
+        if not device_info:
+            message = t("err_unknown_device", device=args.device)
+            print(message, file=sys.stderr)
+            print(
+                t("err_available_devices", devices=", ".join(GSTYLUS_DEVICES.keys())),
+                file=sys.stderr,
+            )
+            _set_build_error(args, message, "invalid_arguments")
+            return 2
+        errors, warnings = validate_g_stylus_build(args, device_info)
+        for warning in warnings:
+            warning_messages.append(warning)
+            print(t("warning_prefix") + " " + warning)
+        if errors:
+            for error in errors:
+                print(t("error_prefix") + " " + error, file=sys.stderr)
+            _set_build_error(
+                args,
+                errors[0],
+                "invalid_arguments",
+                warnings=warning_messages,
+            )
+            return 2
     if args.oneplus:
         if not args.device:
             message = t("err_need_device")
@@ -4784,6 +4888,8 @@ def cmd_build(args):
             targets = [args.matrix]
         elif args.oneplus:
             targets = ["oneplus"]
+        elif args.g_stylus:
+            targets = ["g_stylus"]
         elif source_mode:
             targets = ["source"]
         else:
@@ -4817,6 +4923,37 @@ def cmd_build(args):
                         "use_kpm": str(kpm_enabled).lower(),
                         "use_lz4kd": str(bool(args.lz4kd)).lower(),
                         "use_bbg": str(bool(args.bbg)).lower(),
+                        "use_bbr": str(bool(args.bbr)).lower(),
+                        "use_proxy_optimization": str(bool(args.proxy_optimization)).lower(),
+                        "use_unicode_bypass": str(bool(args.unicode_bypass)).lower(),
+                    }
+                elif target == "g_stylus":
+                    if variant != "KernelSU-Next":
+                        message = t("err_gs_only_next", variant=variant)
+                        print(t("error_prefix") + " " + message, file=sys.stderr)
+                        _set_build_error(args, message, "invalid_arguments")
+                        return 2
+                    kpm_enabled = bool(args.kpm) and supports_kpm(
+                        variant,
+                        g_stylus=True,
+                    )
+                    if args.kpm and not kpm_enabled:
+                        selection = f"{variant} (G Stylus genevn)"
+                        warning = t("op_no_kpm_ksu", ksu=selection)
+                        warning_messages.append(warning)
+                        print(t("warning_prefix") + " " + warning)
+                    inputs = {
+                        "ksu_variant": variant,
+                        "device_manifest": args.device,
+                        "cpu": device_info["cpu"],
+                        "android_version": device_info["android"],
+                        "kernel_version": device_info["kernel"],
+                        "enable_susfs": str(_susfs_enabled(args, variant)).lower(),
+                        "use_kpm": str(kpm_enabled).lower(),
+                        "use_lz4kd": str(bool(args.lz4kd)).lower(),
+                        "use_bbg": str(bool(args.bbg)).lower(),
+                        "use_zeromount": str(bool(args.zeromount)).lower(),
+                        "use_nethunter": str(bool(args.nethunter)).lower(),
                         "use_bbr": str(bool(args.bbr)).lower(),
                         "use_proxy_optimization": str(bool(args.proxy_optimization)).lower(),
                         "use_unicode_bypass": str(bool(args.unicode_bypass)).lower(),
@@ -5448,6 +5585,28 @@ def cmd_list(args):
             devices=devices,
         )
         return 0
+    if args.g_stylus:
+        print(t("gs_list_title"))
+        for did, info in GSTYLUS_DEVICES.items():
+            print(f"  {did:<35} {info['name']:<20} {info['cpu']:<10} {info['android']} {info['kernel']}")
+        devices = [
+            {
+                "id": did,
+                "name": info["name"],
+                "codename": info["codename"],
+                "cpu": info["cpu"],
+                "androidVersion": info["android"],
+                "kernelVersion": info["kernel"],
+            }
+            for did, info in GSTYLUS_DEVICES.items()
+        ]
+        _set_json_result(
+            args,
+            ok=True,
+            total=len(devices),
+            devices=devices,
+        )
+        return 0
 
     print("=" * 50)
     print(t("list_title"))
@@ -5922,6 +6081,7 @@ def main():
     build_mode = build_parser.add_mutually_exclusive_group()
     build_mode.add_argument("--matrix", choices=MATRIX_TARGETS_ALL, help=t("arg_matrix"))
     build_mode.add_argument("--oneplus", action="store_true", help=t("arg_oneplus"))
+    build_mode.add_argument("--g-stylus", dest="g_stylus", action="store_true", help=t("arg_g_stylus"))
     build_mode.add_argument(
         "--source-repo",
         metavar="HTTPS_URL",
@@ -5986,6 +6146,10 @@ def main():
     build_parser.add_argument("--no-zram", dest="zram", action="store_false", help=t("arg_no_zram"))
     build_parser.add_argument("--bbg", action="store_true", help=t("arg_bbg"))
     build_parser.add_argument("--no-bbg", dest="bbg", action="store_false", help=t("arg_no_bbg"))
+    build_parser.add_argument("--zeromount", action="store_true", help=t("arg_zeromount"))
+    build_parser.add_argument("--no-zeromount", dest="zeromount", action="store_false", help=t("arg_no_zeromount"))
+    build_parser.add_argument("--nethunter", action="store_true", help=t("arg_nethunter"))
+    build_parser.add_argument("--no-nethunter", dest="nethunter", action="store_false", help=t("arg_no_nethunter"))
     build_parser.add_argument("--ddk", action="store_true", help=t("arg_ddk"))
     build_parser.add_argument("--no-ddk", dest="ddk", action="store_false", help=t("arg_no_ddk"))
     build_parser.add_argument("--kpm", action="store_true", help=t("arg_kpm_flag"))
@@ -6178,6 +6342,7 @@ def main():
         help=t("cmd_list_help"),
         description=t("cmd_list_desc"))
     list_parser.add_argument("--oneplus", action="store_true", help=t("arg_oneplus"))
+    list_parser.add_argument("--g-stylus", dest="g_stylus", action="store_true", help=t("arg_g_stylus"))
     list_parser.set_defaults(func=cmd_list)
 
     self_test_parser = subparsers.add_parser(

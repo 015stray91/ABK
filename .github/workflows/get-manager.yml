@@ -98,6 +98,9 @@ jobs:
           elif [ "${{ inputs.kernelsu_variant }}" == "Official" ]; then
             echo "This is the Official"
             git clone https://github.com/tiann/KernelSU.git KernelSU
+          elif [ "${{ inputs.kernelsu_variant }}" == "KernelSU-Next" ]; then
+            echo "This is the KernelSU-Next variant"
+            git clone https://github.com/KernelSU-Next/KernelSU-Next.git KernelSU
           else
             echo "Unknown variant"
             exit 1
@@ -117,6 +120,8 @@ jobs:
           elif [ "${{ inputs.kernelsu_variant }}" == "BakaSU" ]; then
             KSU_VERSION=$((30700 + KSU_GIT_VERSION))
           elif [ "${{ inputs.kernelsu_variant }}" == "Official" ]; then
+            KSU_VERSION=$((30000 + KSU_GIT_VERSION))
+          elif [ "${{ inputs.kernelsu_variant }}" == "KernelSU-Next" ]; then
             KSU_VERSION=$((30000 + KSU_GIT_VERSION))
           fi
           echo $KSU_VERSION
@@ -214,6 +219,13 @@ jobs:
             "BakaSU")
               # BakaSU has no release APKs; Actions build-manager (fallback to main latest in script).
               download_manager_for_repo "Baka-SU/BakaSU" "BakaSU"
+              ;;
+            "KernelSU-Next")
+              if [[ "$BRANCH" =~ ^[Vv]?[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+                download_tag_release_apk "KernelSU-Next/KernelSU-Next" "$BRANCH" "KernelSU-Next"
+              else
+                download_manager_for_repo "KernelSU-Next/KernelSU-Next" "KernelSU-Next"
+              fi
               ;;
             *)
               echo "::error::未知 KernelSU 变体: ${{ inputs.kernelsu_variant }}"

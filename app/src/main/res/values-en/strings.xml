@@ -1374,4 +1374,20 @@
     <string name="settings_kernel_runner_saved">Saved to GitHub</string>
     <string name="settings_kernel_runner_saving">Saving…</string>
     <string name="settings_kernel_runner_request_failed">The GitHub repository variables request did not complete. Refresh and try again.</string>
+    <string name="build_target_g_stylus">Moto G Stylus</string>
+    <string name="build_enable_zeromount">Enable ZeroMount stealth mounts</string>
+    <string name="build_enable_nethunter">Enable NetHunter wireless stack</string>
+    <string name="build_g_stylus_device_manifest">Moto device profile</string>
+    <string name="build_g_stylus_susfs_unsupported">SUSFS unsupported on this version combo</string>
+    <string name="build_g_stylus_lz4kd">Enable lz4kd (ZRAM)</string>
+    <string name="build_g_stylus_bbr">Enable BBR</string>
+    <string name="build_g_stylus_proxy_optimization">Enable proxy network optimizations</string>
+    <string name="build_g_stylus_unicode_bypass">Enable Unicode zero-width bypass fix</string>
+    <string name="build_g_stylus_proxy_short">proxy-opt</string>
+    <string name="build_g_stylus_unicode_short">unicode-fix</string>
+    <string name="build_g_stylus_ksu_branch_desc">G Stylus builds use the default upstream KernelSU branch.</string>
+    <string name="build_g_stylus_hero_desc">Builds a device-specific AnyKernel3 package from the Moto genevn config.</string>
+    <string name="build_g_stylus_device_line">Moto device: %1$s</string>
+    <string name="build_g_stylus_kernel_line">Moto KMI: %1$s · kernel %2$s</string>
+    <string name="build_g_stylus_cpu">Moto CPU branch</string>
 </resources>

@@ -1,0 +1,533 @@
+name: G Stylus genevn 内核构建流程
+# TOOLCHAIN CONTRACT (stated, enforced by 校验构建环境):
+#   runner env .... ubuntu-22.04 (pinned, NOT ubuntu-latest)
+#   compiler ...... regular AOSP clang-r416183b 12.0.5 (stock genevn compiler)
+#   flow .......... regular constructs every segment first, ob variants
+#                   post-pass selected segments after (never whole-kernel ob)
+#   vendor ........ repo sync au_linux-qssi-genevn manifest (parrot DLKMs)
+#   KMI ........... 9 / sm6450 / genevn / 5.10
+
+permissions:
+  contents: write
+  actions: write
+
+on:
+  workflow_call:
+    inputs:
+      cpu:
+        required: true
+        type: string
+      device_manifest:
+        required: true
+        type: string
+      android_version:
+        required: true
+        type: string
+      kernel_version:
+        required: true
+        type: string
+      ksu_variant:
+        required: true
+        type: string
+      enable_susfs:
+        required: false
+        type: boolean
+        default: false
+      use_kpm:
+        required: false
+        type: boolean
+        default: false
+      use_lz4kd:
+        required: false
+        type: boolean
+        default: false
+      use_bbg:
+        required: false
+        type: boolean
+        default: true
+      use_zeromount:
+        required: false
+        type: boolean
+        default: false
+      use_nethunter:
+        required: false
+        type: boolean
+        default: false
+      use_bbr:
+        required: false
+        type: boolean
+        default: false
+      use_proxy_optimization:
+        required: false
+        type: boolean
+        default: true
+      use_unicode_bypass:
+        required: false
+        type: boolean
+        default: false
+      kernel_repo:
+        required: false
+        type: string
+        default: 015stray91/AR-NUKI-genevn
+      kernel_ref:
+        required: false
+        type: string
+        default: main
+      tools_repo:
+        required: false
+        type: string
+        default: 015stray91/android-kernel-tools
+      tools_ref:
+        required: false
+        type: string
+        default: tools
+      manifest_repo:
+        required: false
+        type: string
+        default: 015stray91/au_linux-qssi-genevn
+      manifest_ref:
+        required: false
+        type: string
+        default: main
+      manifest_file:
+        required: false
+        type: string
+        default: anyrealm-genevn.xml
+      ob_segments:
+        required: false
+        type: string
+        default: "fs/koto fs/koto/kernel drivers/kernelsu fs/nomount.o"
+      ob_toolchain_url:
+        required: false
+        type: string
+        default: ""
+
+jobs:
+  build:
+    name: "${{ inputs.device_manifest }}-${{ inputs.kernel_version }}-${{ inputs.ksu_variant }}"
+    runs-on: ${{ vars.G_STYLUS_SELF_HOSTED == 'false' && 'ubuntu-22.04' || (startsWith(vars.G_STYLUS_RUNNER, '[') && fromJSON(vars.G_STYLUS_RUNNER) || vars.G_STYLUS_RUNNER || 'ubuntu-22.04') }}
+    timeout-minutes: 180
+
+    env:
+      CPU: ${{ inputs.cpu }}
+      DEVICE_MANIFEST: ${{ inputs.device_manifest }}
+      ANDROID_VERSION: ${{ inputs.android_version }}
+      KERNEL_VERSION: ${{ inputs.kernel_version }}
+      KSU_VARIANT: ${{ inputs.ksu_variant }}
+      ENABLE_SUSFS: ${{ inputs.enable_susfs }}
+      USE_KPM: ${{ inputs.use_kpm }}
+      USE_LZ4KD: ${{ inputs.use_lz4kd }}
+      USE_BBG: ${{ inputs.use_bbg }}
+      USE_ZEROMOUNT: ${{ inputs.zeromount }}
+      USE_NETHUNTER: ${{ inputs.nethunter }}
+      USE_BBR: ${{ inputs.use_bbr }}
+      USE_PROXY_OPT: ${{ inputs.use_proxy_optimization }}
+      USE_UNICODE_BYPASS: ${{ inputs.use_unicode_bypass }}
+      KERNEL_REPO: ${{ inputs.kernel_repo }}
+      KERNEL_REF: ${{ inputs.kernel_ref }}
+      TOOLS_REPO: ${{ inputs.tools_repo }}
+      TOOLS_REF: ${{ inputs.tools_ref }}
+      MANIFEST_REPO: ${{ inputs.manifest_repo }}
+      MANIFEST_REF: ${{ inputs.manifest_ref }}
+      MANIFEST_FILE: ${{ inputs.manifest_file }}
+      OB_SEGMENTS: ${{ inputs.ob_segments }}
+      OB_TOOLCHAIN_URL: ${{ inputs.ob_toolchain_url }}
+
+    steps:
+      - name: 构建信息摘要
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [ "$KSU_VARIANT" != "KernelSU-Next" ]; then
+            echo "::error::genevn 引擎当前仅支持 KernelSU-Next (in-tree)，收到: $KSU_VARIANT"
+            exit 1
+          fi
+          case "$KERNEL_VERSION" in
+            5.10_v1|5.10_v2) ;;
+            *) echo "::error::genevn 引擎仅支持 5.10_v1/v2，收到: $KERNEL_VERSION"; exit 1 ;;
+          esac
+          effective_kpm="$USE_KPM"
+          device_artifact_id="$(echo "${CPU}_${DEVICE_MANIFEST}" | tr -c 'A-Za-z0-9_' '_')"
+          {
+            echo "EFFECTIVE_KPM=$effective_kpm"
+            echo "EFFECTIVE_ENABLE_SUSFS=$ENABLE_SUSFS"
+            echo "DEVICE_ARTIFACT_ID=$device_artifact_id"
+          } >> "$GITHUB_ENV"
+          echo "========================================"
+          echo "  genevn 构建配置摘要 (KMI 9 / sm6450)"
+          echo "========================================"
+          echo "CPU / 设备      : $CPU / $DEVICE_MANIFEST"
+          echo "内核            : $KERNEL_VERSION ($ANDROID_VERSION)"
+          echo "KSU 变体        : $KSU_VARIANT (in-tree)"
+          echo "源码            : $KERNEL_REPO@$KERNEL_REF"
+          echo "工具链          : $TOOLS_REPO@$TOOLS_REF (regular clang-r416183b 12.0.5)"
+          echo "SUSFS           : $ENABLE_SUSFS"
+          echo "KPM (KPatch)    : $effective_kpm"
+          echo "BBG             : $USE_BBG"
+          echo "ZeroMount       : $USE_ZEROMOUNT"
+          echo "NetHunter       : $USE_NETHUNTER"
+          echo "厂商 manifest   : $MANIFEST_REPO@$MANIFEST_REF ($MANIFEST_FILE)"
+          echo "OB 段           : ${OB_SEGMENTS:-none}"
+
+      - name: 最大化构建空间
+        if: ${{ runner.environment == 'github-hosted' }}
+        uses: easimon/maximize-build-space@master
+        with:
+          root-reserve-mb: 8192
+          temp-reserve-mb: 4096
+          remove-dotnet: "true"
+          remove-android: "true"
+          remove-haskell: "true"
+          remove-codeql: "true"
+
+      - name: 检出 ABK 补丁仓库
+        uses: actions/checkout@v6
+
+      - name: 安装依赖
+        shell: bash
+        run: |
+          set -euo pipefail
+          sudo apt-get update -y
+          sudo apt-get install -y bc bison flex libssl-dev libelf-dev dwarves \
+            ccache curl jq git zip unzip python3-yaml libtinfo5 repo
+          if ! command -v repo >/dev/null 2>&1; then
+            mkdir -p ~/.bin
+            curl -fsSL -o ~/.bin/repo https://storage.googleapis.com/git-repo-downloads/repo
+            chmod +x ~/.bin/repo
+            echo "$HOME/.bin" >> "$GITHUB_PATH"
+          fi
+
+      - name: 校验构建环境 (contract)
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(lsb_release -rs)" = "22.04" || {
+            echo "::error::runner 必须是 ubuntu-22.04，当前: $(lsb_release -rs)"; exit 1; }
+          echo "runner: $(lsb_release -ds) (contract OK)"
+
+      - name: 配置 ccache
+        shell: bash
+        run: |
+          set -euo pipefail
+          ccache --set-config=cache_dir="$GITHUB_WORKSPACE/.ccache" || true
+          ccache -z || true
+
+      - name: 克隆 genevn 内核源码
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config --global user.name "abk-builder"
+          git config --global user.email "abk-builder@users.noreply.github.com"
+          rm -rf genevn_workspace
+          mkdir -p genevn_workspace
+          cd genevn_workspace
+          git clone --depth 1 --branch "$KERNEL_REF" \
+            "https://github.com/${KERNEL_REPO}.git" kernel
+          echo "KERNEL_SHA=$(git -C kernel rev-parse --short HEAD)" >> "$GITHUB_ENV"
+
+      - name: 准备 sdclang 工具链
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd "$GITHUB_WORKSPACE/genevn_workspace"
+          git clone --depth 1 --branch "$TOOLS_REF" --sparse \
+            "https://github.com/${TOOLS_REPO}.git" tools
+          cd tools
+          git sparse-checkout set clang
+          cd "$GITHUB_WORKSPACE/genevn_workspace"
+          # 桥接: Makefile 期望 tools/toolchains/snapdragon-toolchain/clang-r416183b
+          # (regular AOSP clang 12.0.5, 与 genevn 出厂编译器一致)
+          mkdir -p kernel/tools/toolchains/snapdragon-toolchain
+          ln -sfn "$GITHUB_WORKSPACE/genevn_workspace/tools/clang/host/linux-x86/clang-r416183b" \
+            kernel/tools/toolchains/snapdragon-toolchain/clang-r416183b
+          export LD_LIBRARY_PATH="/lib/x86_64-linux-gnu:/usr/lib/x86_64-linux-gnu"
+          ./tools/clang/host/linux-x86/clang-r416183b/bin/clang --version | head -1
+          ./tools/clang/host/linux-x86/clang-r416183b/bin/clang --version | grep -q '12.0.5' || {
+            echo "::error::regular clang 版本必须为 12.0.5"; exit 1; }
+
+      - name: 同步 QSSI 厂商树 (repo)
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config --global user.name "abk-builder"
+          git config --global user.email "abk-builder@users.noreply.github.com"
+          cd "$GITHUB_WORKSPACE/genevn_workspace"
+          mkdir -p vendor && cd vendor
+          repo init -u "https://github.com/${MANIFEST_REPO}.git" \
+            -b "$MANIFEST_REF" -m "$MANIFEST_FILE" --depth=1
+          for attempt in 1 2 3; do
+            if repo sync -c -j"$(nproc --all)" --no-tags --no-clone-bundle --force-sync; then
+              break
+            fi
+            echo "::warning::vendor repo sync 失败 (尝试 ${attempt}/3)，重试"
+            sleep "$((attempt * 5))"
+            [ "$attempt" = "3" ] && { echo "::error::vendor repo sync 失败"; exit 1; }
+          done
+          echo "VENDOR_MANIFEST_SHA=$(git -C .repo/manifests rev-parse --short HEAD)" >> "$GITHUB_ENV"
+
+      - name: 校验 in-tree KSU/SUSFS
+        shell: bash
+        run: |
+          set -euo pipefail
+          KROOT="$GITHUB_WORKSPACE/genevn_workspace/kernel"
+          test -f "$KROOT/drivers/kernelsu/Kbuild" || { echo "::error::in-tree KSU 缺失"; exit 1; }
+          test -f "$KROOT/fs/susfs.c" || { echo "::error::in-tree SUSFS 缺失"; exit 1; }
+          test -f "$KROOT/arch/arm64/configs/genevn_defconfig" || { echo "::error::genevn_defconfig 缺失"; exit 1; }
+          echo "in-tree KSU/SUSFS/genevn_defconfig 就绪"
+
+      - name: BBG (setup.sh, 同 OnePlus)
+        if: ${{ inputs.use_bbg && !inputs.use_kpm }}
+        shell: bash
+        working-directory: genevn_workspace/kernel
+        run: |
+          set -euo pipefail
+          curl -fsSL https://github.com/vc-teahouse/Baseband-guard/raw/main/setup.sh -o setup-bbg.sh
+          bash setup-bbg.sh
+
+      - name: 配置 defconfig (merge_config)
+        shell: bash
+        run: |
+          set -euo pipefail
+          KROOT="$GITHUB_WORKSPACE/genevn_workspace/kernel"
+          cd "$KROOT"
+          # 已知 Kconfig 符号表 (全树一次扫描, 三处过滤共用)
+          SYMS="$GITHUB_WORKSPACE/genevn_workspace/known-kconfig-syms.txt"
+          grep -rhoE '^[[:space:]]*(config|menuconfig)[[:space:]]+[A-Za-z0-9_]+' \
+            --include='Kconfig*' . 2>/dev/null | awk '{print $NF}' | sort -u > "$SYMS"
+          echo "known syms: $(wc -l < "$SYMS")"
+          FRAG="$GITHUB_WORKSPACE/genevn_workspace/toggle.fragment"
+          : > "$FRAG"
+          # SUSFS 开关: 关则禁用整个 KSU_SUSFS 家族 (从 Kconfig 枚举)
+          if [ "$ENABLE_SUSFS" != "true" ]; then
+            grep -hoE '^config KSU_SUSFS[A-Z0-9_]*' fs/Kconfig drivers/kernelsu/Kconfig 2>/dev/null \
+              | awk '{print $2}' | sort -u \
+              | while read -r sym; do echo "# $sym is not set" >> "$FRAG"; done
+          fi
+          # ZeroMount 开关 (in-tree, 无需 setup.sh)
+          if [ "$USE_ZEROMOUNT" = "true" ]; then
+            echo "CONFIG_ZEROMOUNT=y" >> "$FRAG"
+          else
+            echo "# CONFIG_ZEROMOUNT is not set" >> "$FRAG"
+          fi
+          if [ "$USE_BBG" = "true" ] && [ "$EFFECTIVE_KPM" = "false" ]; then
+            printf 'CONFIG_BBG=y\nCONFIG_LSM="landlock,lockdown,yama,loadpin,safesetid,integrity,selinux,smack,tomoyo,apparmor,bpf,baseband_guard"\n' >> "$FRAG"
+          fi
+          if [ "$USE_BBR" = "true" ]; then
+            printf 'CONFIG_TCP_CONG_ADVANCED=y\nCONFIG_TCP_CONG_BBR=y\nCONFIG_NET_SCH_FQ=y\n' >> "$FRAG"
+          fi
+          if [ "$USE_LZ4KD" = "true" ]; then
+            if grep -q 'config CRYPTO_LZ4KD' crypto/Kconfig 2>/dev/null; then
+              printf 'CONFIG_CRYPTO_LZ4KD=y\nCONFIG_ZRAM_WRITEBACK=y\n' >> "$FRAG"
+            else
+              printf 'CONFIG_ZRAM=y\nCONFIG_ZRAM_WRITEBACK=y\nCONFIG_CRYPTO_LZ4=y\n' >> "$FRAG"
+            fi
+          fi
+          if [ "$USE_PROXY_OPT" = "true" ]; then
+            printf 'CONFIG_BPF_STREAM_PARSER=y\nCONFIG_IP_SET=y\nCONFIG_IP6_NF_NAT=y\nCONFIG_IP6_NF_TARGET_MASQUERADE=y\n' >> "$FRAG"
+          fi
+          # 过滤未知符号 (merge_config 对未知符号告警)
+          FILTERED="$GITHUB_WORKSPACE/genevn_workspace/toggle-filtered.fragment"
+          : > "$FILTERED"
+          while read -r line; do
+            [ -z "$line" ] && continue
+            sym="$(echo "$line" | sed -E 's/^# (CONFIG_[A-Za-z0-9_]+) is not set/\1/; s/^(CONFIG_[A-Za-z0-9_]+)=.*/\1/')"
+            bare="${sym#CONFIG_}"
+            if grep -qx "$bare" "$SYMS" 2>/dev/null; then
+              echo "$line" >> "$FILTERED"
+            else
+              echo "::warning::跳过未知符号 $sym"
+            fi
+          done < "$FRAG"
+          # ksu-nh Sacred 清单 (47-key): 基线之后、开关之前, last-wins 覆盖基线
+          KSUNH="arch/arm64/configs/ksu-nh.defconfig"
+          test -f "$KSUNH" || { echo "::error::ksu-nh.defconfig 缺失"; exit 1; }
+          KSUNH_FILTERED="$GITHUB_WORKSPACE/genevn_workspace/ksunh-filtered.fragment"
+          : > "$KSUNH_FILTERED"
+          while read -r line; do
+            [ -z "$line" ] && continue
+            sym="$(echo "$line" | sed -E 's/^# (CONFIG_[A-Za-z0-9_]+) is not set/\1/; s/^(CONFIG_[A-Za-z0-9_]+)=.*/\1/')"
+            case "$sym" in CONFIG_*) ;; *) continue;; esac
+            bare="${sym#CONFIG_}"
+            if grep -qx "$bare" "$SYMS" 2>/dev/null; then
+              echo "$line" >> "$KSUNH_FILTERED"
+            else
+              echo "::warning::跳过未知 Sacred 符号 $sym (代码未落地)"
+            fi
+          done < "$KSUNH"
+          MERGE_BASE="arch/arm64/configs/genevn_defconfig"
+          if [ "$KERNEL_VERSION" = "5.10_v2" ]; then
+            MERGE_BASE_COLONEL="arch/arm64/configs/vendor/ext_config/nuki-colonel.config"
+            if [ -f "$MERGE_BASE_COLONEL" ]; then
+              echo "v2: 合并 nuki-colonel.config"
+            else
+              echo "::warning::nuki-colonel.config 缺失，回退 v1 基线"
+              MERGE_BASE_COLONEL=""
+            fi
+          fi
+          mkdir -p out
+          ARCH=arm64 scripts/kconfig/merge_config.sh -m -O out "$MERGE_BASE" \
+            ${MERGE_BASE_COLONEL:+$MERGE_BASE_COLONEL} "$KSUNH_FILTERED" "$FILTERED"
+          echo "--- merged customs ---"
+          grep -E 'CONFIG_(KSU|ZEROMOUNT|BBG)=y' out/.config || true
+
+      - name: NetHunter 标志 (flags, 非补丁)
+        if: ${{ inputs.use_nethunter }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          KROOT="$GITHUB_WORKSPACE/genevn_workspace/kernel"
+          cd "$GITHUB_WORKSPACE/genevn_workspace"
+          # NH 输入是 Kconfig 标志 (5.10), 不是补丁文件: 无线协议栈 + USB 串口 + HID 小工具
+          cd "$KROOT"
+          SYMS="$GITHUB_WORKSPACE/genevn_workspace/known-kconfig-syms.txt"
+          if [ ! -f "$SYMS" ]; then
+            grep -rhoE '^[[:space:]]*(config|menuconfig)[[:space:]]+[A-Za-z0-9_]+' \
+              --include='Kconfig*' . 2>/dev/null | awk '{print $NF}' | sort -u > "$SYMS"
+          fi
+          NHFRAG="$GITHUB_WORKSPACE/genevn_workspace/nh-flags.fragment"
+          cat > "$NHFRAG" <<'NHFLAGS'
+          CONFIG_CFG80211=y
+          CONFIG_MAC80211=y
+          CONFIG_WLAN=y
+          CONFIG_RFKILL=y
+          CONFIG_PACKET=y
+          CONFIG_USB_SERIAL=y
+          CONFIG_USB_SERIAL_OPTION=y
+          CONFIG_USB_SERIAL_FTDI_SIO=y
+          CONFIG_USB_SERIAL_PL2303=y
+          CONFIG_USB_SERIAL_CP210X=y
+          CONFIG_USB_SERIAL_CH341=y
+          CONFIG_USB_F_HID=y
+          NHFLAGS
+          FILTERED="$GITHUB_WORKSPACE/genevn_workspace/nh-flags-filtered.fragment"
+          : > "$FILTERED"
+          while read -r line; do
+            [ -z "$line" ] && continue
+            sym="$(echo "$line" | sed -E 's/^(CONFIG_[A-Za-z0-9_]+)=.*/\1/')"
+            bare="${sym#CONFIG_}"
+            if grep -qx "$bare" "$SYMS" 2>/dev/null; then
+              echo "$line" >> "$FILTERED"
+            else
+              echo "::warning::跳过未知 NH 符号 $sym"
+            fi
+          done < "$NHFRAG"
+          ARCH=arm64 scripts/kconfig/merge_config.sh -m -O out "out/.config" "$FILTERED"
+          grep -E 'CONFIG_(CFG80211|MAC80211|USB_SERIAL)=y' out/.config || true
+
+      - name: KPM 前提强制 (KPatch-Next)
+        if: ${{ inputs.use_kpm }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          KROOT="$GITHUB_WORKSPACE/genevn_workspace/kernel"
+          cd "$KROOT"
+          # ksu-nh 把 KALLSYMS_ALL 关掉, KPM 需要它开: 用 KPM 时强制回开
+          printf 'CONFIG_KALLSYMS_ALL=y\nCONFIG_KPROBES=y\nCONFIG_FTRACE=y\nCONFIG_MODULES=y\n' \
+            > "$GITHUB_WORKSPACE/genevn_workspace/kpm-force.fragment"
+          ARCH=arm64 scripts/kconfig/merge_config.sh -m -O out "out/.config" \
+            "$GITHUB_WORKSPACE/genevn_workspace/kpm-force.fragment"
+          for sym in CONFIG_KALLSYMS_ALL CONFIG_KPROBES CONFIG_FTRACE CONFIG_MODULES; do
+            grep -q "^$sym=y" "$KROOT/out/.config" || {
+              echo "::error::KPM 需要 $sym=y"; exit 1; }
+          done
+          cd "$GITHUB_WORKSPACE/genevn_workspace"
+          git clone --depth 1 https://github.com/KernelSU-Next/KPatch-Next-Module.git kpm-next
+          echo "KPM_NEXT_SHA=$(git -C kpm-next rev-parse --short HEAD)" >> "$GITHUB_ENV"
+          echo "KPM 前提满足 (KPatch-Next 运行时方案)"
+
+      - name: 编译内核 (regular clang-12)
+        shell: bash
+        run: |
+          set -euo pipefail
+          KROOT="$GITHUB_WORKSPACE/genevn_workspace/kernel"
+          SDC="$GITHUB_WORKSPACE/genevn_workspace/tools/clang/host/linux-x86/clang-r416183b"
+          cd "$KROOT"
+          export PATH="/usr/lib/ccache:$SDC/bin:$PATH"
+          export LD_LIBRARY_PATH="/lib/x86_64-linux-gnu:/usr/lib/x86_64-linux-gnu"
+          export KBUILD_BUILD_USER="abk"
+          export KBUILD_BUILD_HOST="abk"
+          export KBUILD_BUILD_VERSION=1
+          make -j"$(nproc --all)" LLVM=1 LLVM_IAS=1 ARCH=arm64 \
+            CC="ccache clang" LD=ld.lld HOSTLD=ld.lld O=out Image.gz modules
+          ccache -s || true
+          ls -la out/arch/arm64/boot/Image.gz
+
+      - name: OB 后处理 (regular 构造后逐段混淆)
+        shell: bash
+        run: |
+          set -euo pipefail
+          # 契约: regular 先构造全部段; 仅当 OB_SEGMENTS 与 OB_TOOLCHAIN_URL
+          # 均给出时, 对选中段执行 ob 重编 + 重链接 (绝不整核 ob)
+          if [ -z "$OB_TOOLCHAIN_URL" ] || [ -z "$OB_SEGMENTS" ]; then
+            echo "OB 跳过 (未提供 ob_toolchain_url 或 ob_segments 为空)"
+            exit 0
+          fi
+          KROOT="$GITHUB_WORKSPACE/genevn_workspace/kernel"
+          cd "$GITHUB_WORKSPACE/genevn_workspace"
+          mkdir -p ob-tc && cd ob-tc
+          curl -fsSL -o ob-tc.tar.xz "$OB_TOOLCHAIN_URL"
+          tar -xf ob-tc.tar.xz
+          OBCC="$(find . -path '*/bin/clang' | head -1)"
+          [ -n "$OBCC" ] || { echo "::error::OB 包中未找到 bin/clang"; exit 1; }
+          "$OBCC" --version | head -1
+          cd "$KROOT"
+          export PATH="/usr/lib/ccache:$(dirname "$OBCC"):$PATH"
+          export LD_LIBRARY_PATH="/lib/x86_64-linux-gnu:/usr/lib/x86_64-linux-gnu"
+          # shellcheck disable=SC2086
+          for seg in $OB_SEGMENTS; do
+            echo "OB 重编段: $seg"
+            make -j"$(nproc --all)" LLVM=1 LLVM_IAS=1 ARCH=arm64 \
+              CC="ccache clang" LD=ld.lld HOSTLD=ld.lld O=out "$seg"
+          done
+          echo "OB 段重链接 Image"
+          make -j"$(nproc --all)" LLVM=1 LLVM_IAS=1 ARCH=arm64 \
+            CC="ccache clang" LD=ld.lld HOSTLD=ld.lld O=out Image.gz modules
+
+      - name: 打包 AnyKernel3 (genevn)
+        shell: bash
+        run: |
+          set -euo pipefail
+          WORKSPACE="$GITHUB_WORKSPACE/genevn_workspace"
+          cd "$WORKSPACE"
+          git clone --depth 1 https://github.com/015stray91/Genevn-sm6450_AnyKernel.git AnyKernel3
+          rm -rf AnyKernel3/.git
+          IMAGE_PATH="$(find "$WORKSPACE/kernel/out" -name 'Image.gz' | head -n 1)"
+          if [ -z "$IMAGE_PATH" ]; then
+            echo "::error::编译完成后未找到 Image.gz"
+            exit 1
+          fi
+          cp "$IMAGE_PATH" AnyKernel3/Image.gz
+          cp out/.config AnyKernel3/config-genevn 2>/dev/null || cp kernel/out/.config AnyKernel3/config-genevn
+          case "$KSU_VARIANT" in
+            None) variant_label="Kernel_Only" ;;
+            SukiSU) variant_label="SukiSU_Ultra" ;;
+            *) variant_label="$KSU_VARIANT" ;;
+          esac
+          if [ "$USE_LZ4KD" = "true" ]; then algo_label="lz4kd"; else algo_label="base"; fi
+          artifact_name="${DEVICE_ARTIFACT_ID}_${variant_label}_${algo_label}_AnyKernel3"
+          if [ "$ENABLE_SUSFS" = "true" ]; then artifact_name="${artifact_name}_with-SUSFS"; fi
+          if [ "$USE_ZEROMOUNT" = "true" ]; then artifact_name="${artifact_name}_ZM"; fi
+          if [ "$USE_NETHUNTER" = "true" ]; then artifact_name="${artifact_name}_NH"; fi
+          image_artifact_name="${DEVICE_ARTIFACT_ID}_${variant_label}_${algo_label}_raw-image-debug"
+          cd AnyKernel3
+          zip -q -r9 "../${artifact_name}.zip" ./*
+          cd "$WORKSPACE"
+          echo "GENEVN_ARTIFACT_NAME=$artifact_name" >> "$GITHUB_ENV"
+          echo "GENEVN_IMAGE_ARTIFACT_NAME=$image_artifact_name" >> "$GITHUB_ENV"
+
+      - name: 上传 AnyKernel3 产物
+        uses: actions/upload-artifact@v6
+        with:
+          name: ${{ env.GENEVN_ARTIFACT_NAME }}
+          path: |
+            genevn_workspace/*.zip
+            LICENSE
+            THIRD_PARTY_NOTICES.md
+          if-no-files-found: error
+
+      - name: 上传内核 Image
+        uses: actions/upload-artifact@v6
+        with:
+          name: ${{ env.GENEVN_IMAGE_ARTIFACT_NAME }}
+          path: genevn_workspace/kernel/out/arch/arm64/boot/Image.gz
+          if-no-files-found: warn

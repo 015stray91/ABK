@@ -26,6 +26,9 @@ def build_args(**overrides):
         "lang": None,
         "matrix": None,
         "oneplus": False,
+        "g_stylus": False,
+        "zeromount": False,
+        "nethunter": False,
         "source_repo": None,
         "source_ref": None,
         "source_private": False,
@@ -771,6 +774,53 @@ class CommandBehaviorTests(unittest.TestCase):
         self.assertIn('"android_version": "android16"', output)
         self.assertIn('"kernel_version": "6.12"', output)
         self.assertIn('"enable_susfs": "true"', output)
+
+    def test_g_stylus_genevn_dry_run_dispatches_next(self):
+        client = RecordingGitHubClient(fork=None)
+
+        result, output = self._run_build(
+            client,
+            g_stylus=True,
+            device="sm6450-genevn-2023",
+            ksu_variant="KernelSU-Next",
+            zeromount=True,
+            dry_run=True,
+        )
+
+        self.assertEqual(0, result, output)
+        self.assertIn('"cpu": "sm6450_v1-2023-5g"', output)
+        self.assertIn('"android_version": "android12-9_v1"', output)
+        self.assertIn('"kernel_version": "5.10_v1"', output)
+        self.assertIn('"use_zeromount": "true"', output)
+        self.assertIn("g_stylus-custom.yml", output)
+
+    def test_g_stylus_rejects_non_next_variant(self):
+        client = RecordingGitHubClient(fork=None)
+
+        result, output = self._run_build(
+            client,
+            g_stylus=True,
+            device="sm6450-genevn-2023",
+            ksu_variant="SukiSU",
+            dry_run=True,
+        )
+
+        self.assertEqual(2, result, output)
+        self.assertIn("KernelSU-Next", output)
+
+    def test_g_stylus_rejects_non_genevn_device(self):
+        client = RecordingGitHubClient(fork=None)
+
+        result, output = self._run_build(
+            client,
+            g_stylus=True,
+            device="sm6450-boston-2024",
+            ksu_variant="KernelSU-Next",
+            dry_run=True,
+        )
+
+        self.assertEqual(2, result, output)
+        self.assertIn("genevn", output)
 
     def test_none_dry_runs_disable_susfs_for_direct_build_modes(self):
         cases = (

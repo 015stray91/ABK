@@ -1,0 +1,176 @@
+name: G Stylus 全矩阵内核构建
+
+permissions:
+  contents: write
+  actions: write
+
+on:
+  workflow_dispatch:
+    inputs:
+      kernelsu_variant:
+        description: "KernelSU 变体"
+        required: true
+        type: choice
+        options:
+          - Official
+          - SukiSU
+          - BakaSU
+          - KernelSU-Next
+          - None
+        default: KernelSU-Next
+      enable_susfs:
+        description: "启用 SUSFS"
+        required: false
+        type: boolean
+        default: false
+      use_kpm:
+        description: "启用 KPM (KPatch-Next 运行时方案)"
+        required: false
+        type: boolean
+        default: false
+      use_lz4kd:
+        description: "启用 lz4kd"
+        required: false
+        type: boolean
+        default: false
+      use_bbg:
+        description: "启用 BBG 基带防护"
+        required: false
+        type: boolean
+        default: true
+      use_zeromount:
+        description: "启用 ZeroMount"
+        required: false
+        type: boolean
+        default: false
+      use_nethunter:
+        description: "启用 NetHunter"
+        required: false
+        type: boolean
+        default: false
+      use_bbr:
+        description: "启用 BBR"
+        required: false
+        type: boolean
+        default: false
+      use_proxy_optimization:
+        description: "启用代理相关网络优化"
+        required: false
+        type: boolean
+        default: true
+      use_unicode_bypass:
+        description: "启用 Unicode 零宽绕过修复"
+        required: false
+        type: boolean
+        default: false
+  workflow_call:
+    inputs:
+      kernelsu_variant:
+        required: true
+        type: string
+      enable_susfs:
+        required: false
+        type: boolean
+        default: false
+      use_kpm:
+        required: false
+        type: boolean
+        default: false
+      use_lz4kd:
+        required: false
+        type: boolean
+        default: false
+      use_bbg:
+        required: false
+        type: boolean
+        default: true
+      use_zeromount:
+        required: false
+        type: boolean
+        default: false
+      use_nethunter:
+        required: false
+        type: boolean
+        default: false
+      use_bbr:
+        required: false
+        type: boolean
+        default: false
+      use_proxy_optimization:
+        required: false
+        type: boolean
+        default: true
+      use_unicode_bypass:
+        required: false
+        type: boolean
+        default: false
+
+jobs:
+  get-manager:
+    name: Upload Manager and SUSFS Module
+    if: ${{ inputs.kernelsu_variant != 'None' }}
+    uses: ./.github/workflows/get-manager.yml
+    secrets: inherit
+    with:
+      kernelsu_variant: ${{ inputs.kernelsu_variant }}
+
+  prepare-matrix:
+    name: 生成 Moto 矩阵
+    runs-on: ubuntu-latest
+    outputs:
+      matrix: ${{ steps.gen.outputs.matrix }}
+      count: ${{ steps.gen.outputs.count }}
+    steps:
+      - id: gen
+        shell: bash
+        run: |
+          python3 <<'PY'
+          import json
+          import os
+          # genevn-only: 引擎当前仅验证 genevn 行, 其余设备保留待启用
+          rows = [
+              {
+                  "device_label": "genevn (G Stylus 5G 2023)",
+                  "cpu": "sm6450_v1-2023-5g",
+                  "device_manifest": "sm6450-genevn-2023",
+                  "android_version": "android12-9_v1",
+                  "kernel_version": "5.10_v1",
+              },
+          ]
+          matrix_json = json.dumps({"include": rows})
+          with open(os.environ["GITHUB_OUTPUT"], "a", encoding="utf-8") as fh:
+              fh.write(f"matrix={matrix_json}\n")
+              fh.write(f"count={len(rows)}\n")
+          with open(os.environ["GITHUB_STEP_SUMMARY"], "a", encoding="utf-8") as summary:
+              summary.write("## G Stylus 全矩阵内核构建\n\n")
+              summary.write(f"- 总任务数: {len(rows)}\n")
+              for row in rows:
+                  summary.write(f"- {row['device_label']}: {row['cpu']} / {row['device_manifest']}\n")
+          print(matrix_json)
+          PY
+
+  build-g-stylus-full-matrix:
+    name: "${{ matrix.device_label }} · ${{ inputs.kernelsu_variant }}"
+    needs: prepare-matrix
+    if: ${{ needs.prepare-matrix.outputs.count != '0' }}
+    strategy:
+      fail-fast: false
+      max-parallel: 4
+      matrix: ${{ fromJson(needs.prepare-matrix.outputs.matrix) }}
+    uses: ./.github/workflows/g_stylus-build.yml
+    secrets: inherit
+    with:
+      cpu: ${{ matrix.cpu }}
+      device_manifest: ${{ matrix.device_manifest }}
+      android_version: ${{ matrix.android_version }}
+      kernel_version: ${{ matrix.kernel_version }}
+      ksu_variant: ${{ inputs.kernelsu_variant }}
+      enable_susfs: ${{ inputs.enable_susfs }}
+      use_kpm: ${{ inputs.use_kpm && (inputs.kernelsu_variant == 'SukiSU' || inputs.kernelsu_variant == 'BakaSU' || inputs.kernelsu_variant == 'KernelSU-Next') }}
+      use_lz4kd: ${{ inputs.use_lz4kd }}
+      use_bbg: ${{ inputs.use_bbg }}
+      use_zeromount: ${{ inputs.use_zeromount }}
+      use_nethunter: ${{ inputs.use_nethunter }}
+      use_bbr: ${{ inputs.use_bbr }}
+      use_proxy_optimization: ${{ inputs.use_proxy_optimization }}
+      use_unicode_bypass: ${{ inputs.use_unicode_bypass }}

@@ -27,8 +27,18 @@ data class OnePlusDeviceProfile(
     val kernelVersion: String
 )
 
+data class MotoDeviceProfile(
+    val manifest: String,
+    val displayName: String,
+    val systemVersion: String,
+    val codename: String,
+    val cpu: String,
+    val androidVersion: String,
+    val kernelVersion: String
+)
+
 object KernelSupport {
-    val buildTargets = listOf(BUILD_TARGET_GKI, BUILD_TARGET_CUSTOM_SOURCE, BUILD_TARGET_ONEPLUS)
+    val buildTargets = listOf(BUILD_TARGET_GKI, BUILD_TARGET_CUSTOM_SOURCE, BUILD_TARGET_ONEPLUS, BUILD_TARGET_G_STYLUS)
 
     val lines = listOf(
         KernelVersionLine("android12", "5.10"),
@@ -101,6 +111,24 @@ object KernelSupport {
     )
 
     val onePlusDeviceManifestOptions = onePlusDeviceProfiles.map { it.manifest }
+
+    val motoCpuOptions = listOf(
+        "sm8450-",
+        "sm7435-",
+        "sm6450_v1-2023-5g",
+        "sm6450_v2-2024-5g",
+        "sm6475_a/b-2025-5g",
+        "sm6475_a/b-2026-5g"
+    )
+
+    val motoDeviceProfiles = listOf(
+        MotoDeviceProfile("sm6450-genevn-2023", "Moto G Stylus 5G 2023", "Android 12-14", "genevn", "sm6450_v1-2023-5g", "android12-9_v1", "5.10_v1"),
+        MotoDeviceProfile("sm6450-boston-2024", "Moto G Stylus 5G 2024", "Android 14", "boston", "sm6450_v2-2024-5g", "android12-9_v1", "5.10_v1"),
+        MotoDeviceProfile("sm6475_ab-houston-2025", "Moto Houston 2025", "Android 16", "houston", "sm6475_a/b-2025-5g", "android16", "6.12"),
+        MotoDeviceProfile("sm6475_ab-dallas-2026", "Moto Dallas 2026", "Android 16", "dallas", "sm6475_a/b-2026-5g", "android16", "6.12")
+    )
+
+    val motoDeviceManifestOptions = motoDeviceProfiles.map { it.manifest }
 
     val entries = listOf(
         KernelSupportEntry("android12", "5.10", "43", "2021-08"),
@@ -254,24 +282,38 @@ object KernelSupport {
 
     fun onePlusLz4kdSupported(kernelVersion: String): Boolean = kernelVersion != "6.12"
 
+    fun motoSusfsSupported(androidVersion: String, kernelVersion: String): Boolean =
+        "$androidVersion/$kernelVersion" in setOf("android12-9_v1/5.10_v1", "android12-9_v1/5.10_v2")
+
     fun normalize(config: KernelBuildConfig): KernelBuildConfig {
         val target = normalizeBuildTarget(config.buildTarget)
         val isOnePlus = target == BUILD_TARGET_ONEPLUS
+        val isGStylus = target == BUILD_TARGET_G_STYLUS
         val isCustomSource = target == BUILD_TARGET_CUSTOM_SOURCE
         val requestedOnePlusManifest = config.onePlusDeviceManifest.orEmpty().trim().lowercase()
         val onePlusDeviceManifest = requestedOnePlusManifest
             .takeIf { it in onePlusDeviceManifestOptions }
             ?: "oneplus_12_b"
         val onePlusProfile = onePlusDeviceProfile(onePlusDeviceManifest)
+        val requestedMotoManifest = config.gStylusDeviceManifest.orEmpty().trim().lowercase()
+        val motoDeviceManifest = requestedMotoManifest
+            .takeIf { it in motoDeviceManifestOptions }
+            ?: "sm6450-genevn-2023"
+        val motoProfile = motoDeviceProfile(motoDeviceManifest)
         val line = if (isOnePlus) {
             onePlusProfile
                 ?.let { KernelVersionLine(it.androidVersion, it.kernelVersion) }
                 ?: onePlusLineFor(config.androidVersion, config.kernelVersion)
+        } else if (isGStylus) {
+            motoProfile
+                ?.let { KernelVersionLine(it.androidVersion, it.kernelVersion) }
+                ?: KernelVersionLine("android12-9_v1", "5.10_v1")
         } else {
             lineFor(config.androidVersion, config.kernelVersion)
         }
         val ksuVariant = normalizeKsuVariant(config.kernelsuVariant, target)
         val subLevel = when {
+            isGStylus -> config.subLevel.trim().ifBlank { "233" }
             isCustomSource -> config.subLevel.trim().ifBlank { "X" }
             config.subLevel == "X" -> "X"
             subLevels(line).contains(config.subLevel) -> config.subLevel
@@ -279,6 +321,7 @@ object KernelSupport {
         }
         val patchOptions = patchLevels(line, subLevel)
         val osPatch = when {
+            isGStylus -> config.osPatchLevel.trim().ifBlank { "2025-03" }
             isCustomSource -> config.osPatchLevel.trim()
             config.osPatchLevel in patchOptions -> config.osPatchLevel
             else -> patchOptions.maxByOrNull(::patchMonthIndex) ?: latestEntry(line).osPatchLevel
@@ -290,14 +333,23 @@ object KernelSupport {
         } else {
             "sm8650"
         }
+        val motoCpu = if (isGStylus) {
+            motoProfile?.cpu
+                ?: config.gStylusCpu.orEmpty().trim().lowercase().takeIf { it in motoCpuOptions }
+                ?: "sm6450_v1-2023-5g"
+        } else {
+            "sm6450_v1-2023-5g"
+        }
         val normalizedKsuBranch = normalizeKsuBranch(
-            if (isOnePlus || ksuVariant == KSU_VARIANT_NONE) KSU_BRANCH_STABLE else config.kernelsuBranch
+            if (isOnePlus || isGStylus || ksuVariant == KSU_VARIANT_NONE) KSU_BRANCH_STABLE else config.kernelsuBranch
         )
         val onePlusIsMtk = onePlusCpu.startsWith("mt")
         val onePlusKpmSupported = !onePlusIsMtk && ksuVariant in setOf(KSU_VARIANT_SUKISU, KSU_VARIANT_BAKASU)
         val gkiKpmSupported = isKpmSupported(BUILD_TARGET_GKI, ksuVariant, normalizedKsuBranch)
+        val gStylusKpmSupported = isKpmSupported(BUILD_TARGET_G_STYLUS, ksuVariant, normalizedKsuBranch)
         val onePlusProxyAllowed = !onePlusIsMtk
         val onePlusSusfsEnabled = onePlusSusfsSupported(line.androidVersion, line.kernelVersion)
+        val motoSusfsEnabled = motoSusfsSupported(line.androidVersion, line.kernelVersion)
         val onePlusLz4kdEnabled = onePlusLz4kdSupported(line.kernelVersion)
         return config.copy(
             buildTarget = target,
@@ -315,33 +367,35 @@ object KernelSupport {
             osPatchLevel = osPatch,
             kernelsuVariant = ksuVariant,
             kernelsuBranch = normalizedKsuBranch,
-            customRef = if (isOnePlus) "" else config.customRef.trim(),
-            version = if (isOnePlus) "" else config.version,
-            buildTime = if (isOnePlus) "" else config.buildTime,
-            useZram = if (isOnePlus) false else config.useZram,
-            useDdk = if (isOnePlus) false else config.useDdk,
-            useNtsync = if (isOnePlus) false else config.useNtsync,
-            useNetworking = if (isOnePlus) false else config.useNetworking,
-            useRekernel = if (isOnePlus) false else config.useRekernel,
+            customRef = if (isOnePlus || isGStylus) "" else config.customRef.trim(),
+            version = if (isOnePlus || isGStylus) "" else config.version,
+            buildTime = if (isOnePlus || isGStylus) "" else config.buildTime,
+            useZram = if (isOnePlus || isGStylus) false else config.useZram,
+            useDdk = if (isOnePlus || isGStylus) false else config.useDdk,
+            useNtsync = if (isOnePlus || isGStylus) false else config.useNtsync,
+            useNetworking = if (isOnePlus || isGStylus) false else config.useNetworking,
+            useRekernel = if (isOnePlus || isGStylus) false else config.useRekernel,
             useKpm = when {
                 ksuVariant == KSU_VARIANT_NONE -> false
                 isOnePlus -> onePlusKpmSupported && config.useKpm
+                isGStylus -> gStylusKpmSupported && config.useKpm
                 else -> gkiKpmSupported && config.useKpm
             },
             cancelSusfs = when {
                 ksuVariant == KSU_VARIANT_NONE -> true
                 isOnePlus && !onePlusSusfsEnabled -> true
+                isGStylus && !motoSusfsEnabled -> true
                 else -> config.cancelSusfs
             },
-            kpmPassword = if (isOnePlus || ksuVariant == KSU_VARIANT_NONE || !gkiKpmSupported) "" else config.kpmPassword,
-            virtualizationSupport = if (isOnePlus) "off" else normalizeVirtualizationSupport(line.kernelVersion, config.virtualizationSupport),
-            customKernelOptions = if (isOnePlus) {
+            kpmPassword = if (isOnePlus || isGStylus || ksuVariant == KSU_VARIANT_NONE || !gkiKpmSupported) "" else config.kpmPassword,
+            virtualizationSupport = if (isOnePlus || isGStylus) "off" else normalizeVirtualizationSupport(line.kernelVersion, config.virtualizationSupport),
+            customKernelOptions = if (isOnePlus || isGStylus) {
                 emptyList()
             } else {
                 normalizeCustomKernelOptions(config.customKernelOptions)
             },
-            useCustomExternalModules = if (isOnePlus) false else config.useCustomExternalModules,
-            customExternalModules = if (isOnePlus) {
+            useCustomExternalModules = if (isOnePlus || isGStylus) false else config.useCustomExternalModules,
+            customExternalModules = if (isOnePlus || isGStylus) {
                 emptyList()
             } else {
                 config.customExternalModules.orEmpty()
@@ -383,7 +437,13 @@ object KernelSupport {
             } else {
                 true
             },
-            onePlusUseUnicodeBypass = if (isOnePlus) config.onePlusUseUnicodeBypass else false
+            onePlusUseUnicodeBypass = if (isOnePlus) config.onePlusUseUnicodeBypass else false,
+            gStylusCpu = if (isGStylus) motoCpu else "sm6450_v1-2023-5g",
+            gStylusDeviceManifest = if (isGStylus) motoDeviceManifest else "sm6450-genevn-2023",
+            gStylusUseLz4kd = if (isGStylus) config.gStylusUseLz4kd else false,
+            gStylusUseBbr = if (isGStylus) config.gStylusUseBbr else false,
+            gStylusUseProxyOptimization = if (isGStylus) config.gStylusUseProxyOptimization else true,
+            gStylusUseUnicodeBypass = if (isGStylus) config.gStylusUseUnicodeBypass else false
         )
     }
 
@@ -444,9 +504,21 @@ object KernelSupport {
 
     fun onePlusKsuVariantOptions(): List<String> = ONEPLUS_KSU_VARIANT_OPTIONS
 
+    fun gStylusKsuVariantOptions(): List<String> = GSTYLUS_KSU_VARIANT_OPTIONS
+
     fun onePlusDeviceProfile(manifest: String?): OnePlusDeviceProfile? {
         val normalized = manifest.orEmpty().trim().lowercase()
         return onePlusDeviceProfiles.firstOrNull { it.manifest == normalized }
+    }
+
+    fun motoDeviceProfile(manifest: String?): MotoDeviceProfile? {
+        val normalized = manifest.orEmpty().trim().lowercase()
+        return motoDeviceProfiles.firstOrNull { it.manifest == normalized }
+    }
+
+    fun motoDeviceLabel(manifest: String): String {
+        val profile = motoDeviceProfile(manifest) ?: return manifest
+        return "${profile.displayName} · ${profile.systemVersion} · ${profile.androidVersion}/${profile.kernelVersion} · ${profile.cpu}"
     }
 
     fun onePlusDeviceLabel(manifest: String): String {
@@ -497,14 +569,18 @@ object KernelSupport {
             lower == KSU_VARIANT_OFFICIAL.lowercase() -> KSU_VARIANT_OFFICIAL
             lower == KSU_VARIANT_SUKISU.lowercase() -> KSU_VARIANT_SUKISU
             lower == KSU_VARIANT_BAKASU.lowercase() -> KSU_VARIANT_BAKASU
+            lower.replace("-", "").replace("_", "") == "kernelsunext" -> KSU_VARIANT_NEXT
             lower == KSU_VARIANT_NONE.lowercase() || lower == "无" -> KSU_VARIANT_NONE
             isLegacyAlias -> KSU_VARIANT_BAKASU
             else -> KSU_VARIANT_BAKASU
         }
-        return if (normalizeBuildTarget(buildTarget) == BUILD_TARGET_ONEPLUS) {
-            normalized.takeIf { it in ONEPLUS_KSU_VARIANT_OPTIONS } ?: KSU_VARIANT_SUKISU
-        } else {
-            normalized.takeIf { it in KSU_VARIANT_OPTIONS } ?: KSU_VARIANT_BAKASU
+        return when (normalizeBuildTarget(buildTarget)) {
+            BUILD_TARGET_ONEPLUS ->
+                normalized.takeIf { it in ONEPLUS_KSU_VARIANT_OPTIONS } ?: KSU_VARIANT_SUKISU
+            BUILD_TARGET_G_STYLUS ->
+                normalized.takeIf { it in GSTYLUS_KSU_VARIANT_OPTIONS } ?: KSU_VARIANT_NEXT
+            else ->
+                normalized.takeIf { it in KSU_VARIANT_OPTIONS } ?: KSU_VARIANT_BAKASU
         }
     }
 
@@ -534,6 +610,8 @@ object KernelSupport {
             normalizedVariant == KSU_VARIANT_OFFICIAL -> false
             normalizedTarget == BUILD_TARGET_ONEPLUS ->
                 normalizedVariant in setOf(KSU_VARIANT_SUKISU, KSU_VARIANT_BAKASU)
+            normalizedTarget == BUILD_TARGET_G_STYLUS ->
+                normalizedVariant == KSU_VARIANT_NEXT
             normalizedVariant == KSU_VARIANT_BAKASU &&
                 normalizedBranch !in setOf(KSU_BRANCH_STABLE, KSU_BRANCH_CUSTOM) -> false
             else -> true

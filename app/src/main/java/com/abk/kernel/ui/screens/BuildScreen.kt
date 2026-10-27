@@ -60,6 +60,7 @@ import com.abk.kernel.data.model.BuildStepProgress
 import com.abk.kernel.data.model.BuildStatus
 import com.abk.kernel.data.model.BUILD_TARGET_GKI
 import com.abk.kernel.data.model.BUILD_TARGET_CUSTOM_SOURCE
+import com.abk.kernel.data.model.BUILD_TARGET_G_STYLUS
 import com.abk.kernel.data.model.BUILD_TARGET_ONEPLUS
 import com.abk.kernel.data.model.SOURCE_ACCESS_GITHUB_PRIVATE
 import com.abk.kernel.data.model.SOURCE_ACCESS_PUBLIC
@@ -137,6 +138,7 @@ fun BuildScreen(
     val rawConfig = state.buildConfig
     val config = remember(rawConfig) { KernelSupport.normalize(rawConfig) }
     val isOnePlusBuild = config.buildTarget == BUILD_TARGET_ONEPLUS
+    val isGStylusBuild = config.buildTarget == BUILD_TARGET_G_STYLUS
     val isCustomSourceBuild = config.buildTarget == BUILD_TARGET_CUSTOM_SOURCE
     val recommended = state.recommendedBuildConfig
     val motionScheme = MaterialTheme.motionScheme
@@ -145,6 +147,8 @@ fun BuildScreen(
     val ksuVariantOptions = remember(config.buildTarget) {
         if (config.buildTarget == BUILD_TARGET_ONEPLUS) {
             KernelSupport.onePlusKsuVariantOptions()
+        } else if (config.buildTarget == BUILD_TARGET_G_STYLUS) {
+            KernelSupport.gStylusKsuVariantOptions()
         } else {
             KernelSupport.ksuVariantOptions()
         }
@@ -332,7 +336,7 @@ fun BuildScreen(
     }
 
     LaunchedEffect(isOnePlusBuild, showKernelOptionsPage) {
-        if (isOnePlusBuild && showKernelOptionsPage) {
+        if ((isOnePlusBuild || isGStylusBuild) && showKernelOptionsPage) {
             closeChildPage()
         }
     }
@@ -493,10 +497,15 @@ fun BuildScreen(
                                 }
                             }
                         }
-                    } else if (isOnePlusBuild) {
+                    } else if (isOnePlusBuild || isGStylusBuild) {
                         Text(stringResource(R.string.build_target_line, buildTargetLabel(config.buildTarget)))
-                        Text(stringResource(R.string.build_oneplus_device_line, KernelSupport.onePlusDeviceLabel(config.onePlusDeviceManifest)))
-                        Text(stringResource(R.string.build_oneplus_kernel_line, config.androidVersion, config.kernelVersion))
+                        if (isGStylusBuild) {
+                            Text(stringResource(R.string.build_g_stylus_device_line, KernelSupport.motoDeviceLabel(config.gStylusDeviceManifest)))
+                            Text(stringResource(R.string.build_g_stylus_kernel_line, config.androidVersion, config.kernelVersion))
+                        } else {
+                            Text(stringResource(R.string.build_oneplus_device_line, KernelSupport.onePlusDeviceLabel(config.onePlusDeviceManifest)))
+                            Text(stringResource(R.string.build_oneplus_kernel_line, config.androidVersion, config.kernelVersion))
+                        }
                         Text("KSU: ${ksuVariantDisplayName(config.kernelsuVariant)}")
                         Text(
                             stringResource(
@@ -1339,7 +1348,25 @@ fun BuildScreen(
             BuildTargetSelector(
                 selected = config.buildTarget,
                 onSelect = { target ->
-                    val next = if (target == BUILD_TARGET_ONEPLUS) {
+                    val next = if (target == BUILD_TARGET_G_STYLUS) {
+                        config.copy(
+                            buildTarget = BUILD_TARGET_G_STYLUS,
+                            androidVersion = "android12-9_v1",
+                            kernelVersion = "5.10_v1",
+                            kernelsuVariant = KSU_VARIANT_NEXT,
+                            cancelSusfs = false,
+                            useKpm = false,
+                            useBbg = true,
+                            useZeromount = false,
+                            useNethunter = false,
+                            gStylusCpu = "sm6450_v1-2023-5g",
+                            gStylusDeviceManifest = "sm6450-genevn-2023",
+                            gStylusUseLz4kd = false,
+                            gStylusUseBbr = false,
+                            gStylusUseProxyOptimization = true,
+                            gStylusUseUnicodeBypass = false
+                        )
+                    } else if (target == BUILD_TARGET_ONEPLUS) {
                         config.copy(
                             buildTarget = BUILD_TARGET_ONEPLUS,
                             androidVersion = "android14",
@@ -1594,6 +1621,43 @@ fun BuildScreen(
                         label = stringResource(R.string.build_kernel_version),
                         value = config.kernelVersion
                     )
+                } else if (isGStylusBuild) {
+                    DropdownField(
+                        label = stringResource(R.string.build_g_stylus_device_manifest),
+                        value = config.gStylusDeviceManifest,
+                        options = KernelSupport.motoDeviceManifestOptions,
+                        optionLabel = KernelSupport::motoDeviceLabel,
+                        onSelect = { manifest ->
+                            val profile = KernelSupport.motoDeviceProfile(manifest)
+                            vm.updateBuildConfig(
+                                KernelSupport.normalize(
+                                    config.copy(
+                                        gStylusDeviceManifest = manifest,
+                                        gStylusCpu = profile?.cpu ?: config.gStylusCpu,
+                                        androidVersion = profile?.androidVersion ?: config.androidVersion,
+                                        kernelVersion = profile?.kernelVersion ?: config.kernelVersion
+                                    )
+                                )
+                            )
+                        }
+                    )
+                    Text(
+                        text = stringResource(R.string.build_oneplus_profile_desc),
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                    ReadOnlyField(
+                        label = stringResource(R.string.build_g_stylus_cpu),
+                        value = config.gStylusCpu
+                    )
+                    ReadOnlyField(
+                        label = stringResource(R.string.build_android_version),
+                        value = config.androidVersion
+                    )
+                    ReadOnlyField(
+                        label = stringResource(R.string.build_kernel_version),
+                        value = config.kernelVersion
+                    )
                 } else {
                     DropdownField(
                         label = stringResource(R.string.build_android_version),
@@ -1702,7 +1766,7 @@ fun BuildScreen(
                         style = MaterialTheme.typography.bodyMedium,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
-                } else if (!isOnePlusBuild) {
+                } else if (!isOnePlusBuild && !isGStylusBuild) {
                     DropdownField(
                         label = stringResource(R.string.build_ksu_branch),
                         value = KernelSupport.normalizeKsuBranch(config.kernelsuBranch),
@@ -1732,7 +1796,11 @@ fun BuildScreen(
                     }
                 } else {
                     Text(
-                        text = stringResource(R.string.build_oneplus_ksu_branch_desc),
+                        text = if (isGStylusBuild) {
+                            stringResource(R.string.build_g_stylus_ksu_branch_desc)
+                        } else {
+                            stringResource(R.string.build_oneplus_ksu_branch_desc)
+                        },
                         style = MaterialTheme.typography.bodyMedium,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
@@ -1804,6 +1872,52 @@ fun BuildScreen(
                     SwitchRow(stringResource(R.string.build_oneplus_unicode_bypass), config.onePlusUseUnicodeBypass) {
                         vm.updateBuildConfig(config.copy(onePlusUseUnicodeBypass = it))
                     }
+                } else if (isGStylusBuild) {
+                    val motoSusfsSupported = KernelSupport.motoSusfsSupported(config.androidVersion, config.kernelVersion)
+                    SwitchRow(
+                        stringResource(R.string.build_enable_susfs),
+                        !config.cancelSusfs && motoSusfsSupported,
+                        enabled = !noRootScheme && motoSusfsSupported
+                    ) {
+                        vm.updateBuildConfig(KernelSupport.normalize(config.copy(cancelSusfs = !it)))
+                    }
+                    if (!motoSusfsSupported) {
+                        Text(
+                            text = stringResource(R.string.build_g_stylus_susfs_unsupported),
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+                    SwitchRow(stringResource(R.string.build_enable_kpm), config.useKpm, enabled = kpmSupported && !noRootScheme) {
+                        vm.updateBuildConfig(KernelSupport.normalize(config.copy(useKpm = it)))
+                    }
+                    SwitchRow(
+                        stringResource(R.string.build_g_stylus_lz4kd),
+                        config.gStylusUseLz4kd
+                    ) {
+                        vm.updateBuildConfig(KernelSupport.normalize(config.copy(gStylusUseLz4kd = it)))
+                    }
+                    SwitchRow(stringResource(R.string.build_enable_bbg), config.useBbg) {
+                        vm.updateBuildConfig(config.copy(useBbg = it))
+                    }
+                    SwitchRow(stringResource(R.string.build_enable_zeromount), config.useZeromount) {
+                        vm.updateBuildConfig(config.copy(useZeromount = it))
+                    }
+                    SwitchRow(stringResource(R.string.build_enable_nethunter), config.useNethunter) {
+                        vm.updateBuildConfig(config.copy(useNethunter = it))
+                    }
+                    SwitchRow(stringResource(R.string.build_g_stylus_bbr), config.gStylusUseBbr) {
+                        vm.updateBuildConfig(config.copy(gStylusUseBbr = it))
+                    }
+                    SwitchRow(
+                        stringResource(R.string.build_g_stylus_proxy_optimization),
+                        config.gStylusUseProxyOptimization
+                    ) {
+                        vm.updateBuildConfig(KernelSupport.normalize(config.copy(gStylusUseProxyOptimization = it)))
+                    }
+                    SwitchRow(stringResource(R.string.build_g_stylus_unicode_bypass), config.gStylusUseUnicodeBypass) {
+                        vm.updateBuildConfig(config.copy(gStylusUseUnicodeBypass = it))
+                    }
                 } else {
                     SwitchRow(stringResource(R.string.build_enable_susfs), !config.cancelSusfs, enabled = !noRootScheme) {
                         vm.updateBuildConfig(KernelSupport.normalize(config.copy(cancelSusfs = !it)))
@@ -1841,7 +1955,7 @@ fun BuildScreen(
                 }
             }
 
-            if (!isOnePlusBuild) {
+            if (!isOnePlusBuild && !isGStylusBuild) {
                 SectionCard(
                     section = BuildSection.CustomKernelOptions,
                     modifier = Modifier.clickable(onClick = ::openKernelOptionsPage),
@@ -1862,7 +1976,7 @@ fun BuildScreen(
                 }
             }
 
-            AnimatedVisibility(!isOnePlusBuild && config.useZram) {
+            AnimatedVisibility(!isOnePlusBuild && !isGStylusBuild && config.useZram) {
                 SectionCard(section = BuildSection.ZramOptions) {
                     SwitchRow(stringResource(R.string.build_zram_full_algo), config.zramFullAlgo) {
                         vm.updateBuildConfig(config.copy(zramFullAlgo = it))
@@ -3393,6 +3507,10 @@ private fun BuildTargetSelector(
         AbkSegmentedButtonOption(
             value = BUILD_TARGET_ONEPLUS,
             label = buildTargetLabel(BUILD_TARGET_ONEPLUS)
+        ),
+        AbkSegmentedButtonOption(
+            value = BUILD_TARGET_G_STYLUS,
+            label = buildTargetLabel(BUILD_TARGET_G_STYLUS)
         )
     )
     ExpressiveSectionCard(
@@ -3517,6 +3635,7 @@ private fun BuildDefconfigEditorPage(
 private fun buildTargetLabel(target: String): String = when (target) {
     BUILD_TARGET_CUSTOM_SOURCE -> stringResource(R.string.build_target_custom_source)
     BUILD_TARGET_ONEPLUS -> stringResource(R.string.build_target_oneplus)
+    BUILD_TARGET_G_STYLUS -> stringResource(R.string.build_target_g_stylus)
     else -> stringResource(R.string.build_target_gki)
 }
 
@@ -3533,6 +3652,21 @@ private fun buildPlanSummary(config: KernelBuildConfig): String {
         }
         return "${buildTargetLabel(config.buildTarget)} · $sourceName · ${config.sourceRef}\n" +
             "${config.osPatchLevel} · ${config.sourceDefconfigs.joinToString(" -> ")} · ${ksuVariantDisplayName(config.kernelsuVariant)}"
+    }
+    if (config.buildTarget == BUILD_TARGET_G_STYLUS) {
+        val enabled = mutableListOf<String>()
+        if (!config.cancelSusfs) enabled += "SUSFS"
+        if (config.gStylusUseLz4kd) enabled += "lz4kd"
+        if (config.useBbg) enabled += "BBG"
+        if (config.useZeromount) enabled += "ZM"
+        if (config.useNethunter) enabled += "NH"
+        if (config.useKpm) enabled += "KPM"
+        if (config.gStylusUseBbr) enabled += "BBR"
+        if (config.gStylusUseProxyOptimization) enabled += stringResource(R.string.build_g_stylus_proxy_short)
+        if (config.gStylusUseUnicodeBypass) enabled += stringResource(R.string.build_g_stylus_unicode_short)
+        val featureSummary = enabled.ifEmpty { listOf(stringResource(R.string.build_base_config)) }.joinToString("、")
+        return "${buildTargetLabel(config.buildTarget)} · ${KernelSupport.motoDeviceLabel(config.gStylusDeviceManifest)}\n" +
+            "${config.kernelVersion} · ${config.androidVersion} · ${ksuVariantDisplayName(config.kernelsuVariant)} · $featureSummary"
     }
     if (config.buildTarget == BUILD_TARGET_ONEPLUS) {
         val enabled = mutableListOf<String>()
@@ -3607,6 +3741,52 @@ private fun BuildPlanHero(
                     icon = Icons.Default.CalendarMonth,
                     color = MaterialTheme.colorScheme.secondary
                 )
+                ExpressiveStatusChip(
+                    label = buildStatusLabel(status),
+                    icon = Icons.Default.RunCircle,
+                    color = buildStatusColor(status)
+                )
+            }
+        )
+        return
+    }
+    if (config.buildTarget == BUILD_TARGET_G_STYLUS) {
+        ExpressiveHeroCard(
+            title = KernelSupport.motoDeviceLabel(config.gStylusDeviceManifest),
+            subtitle = stringResource(R.string.build_g_stylus_hero_desc),
+            icon = Icons.Default.PhoneAndroid,
+            containerColor = MaterialTheme.colorScheme.primaryContainer,
+            contentColor = MaterialTheme.colorScheme.onPrimaryContainer,
+            badge = {
+                ExpressiveStatusChip(
+                    label = ksuVariantDisplayName(config.kernelsuVariant),
+                    icon = Icons.Default.Shield,
+                    color = MaterialTheme.colorScheme.primary
+                )
+                ExpressiveStatusChip(
+                    label = "${config.kernelVersion} · ${config.androidVersion}",
+                    icon = Icons.Default.Memory,
+                    color = MaterialTheme.colorScheme.secondary
+                )
+                ExpressiveStatusChip(
+                    label = if (!config.cancelSusfs) stringResource(R.string.build_susfs_on) else stringResource(R.string.build_susfs_off),
+                    icon = Icons.Default.Extension,
+                    color = if (!config.cancelSusfs) MaterialTheme.colorScheme.secondary else MaterialTheme.colorScheme.outline
+                )
+                if (config.useZeromount) {
+                    ExpressiveStatusChip(
+                        label = "ZM",
+                        icon = Icons.Default.VisibilityOff,
+                        color = MaterialTheme.colorScheme.secondary
+                    )
+                }
+                if (config.useNethunter) {
+                    ExpressiveStatusChip(
+                        label = "NH",
+                        icon = Icons.Default.Wifi,
+                        color = MaterialTheme.colorScheme.secondary
+                    )
+                }
                 ExpressiveStatusChip(
                     label = buildStatusLabel(status),
                     icon = Icons.Default.RunCircle,

@@ -588,9 +588,11 @@ const val KSU_VARIANT_NONE = "None"
 const val KSU_VARIANT_OFFICIAL = "Official"
 const val KSU_VARIANT_SUKISU = "SukiSU"
 const val KSU_VARIANT_BAKASU = "BakaSU"
+const val KSU_VARIANT_NEXT = "KernelSU-Next"
 const val BUILD_TARGET_GKI = "gki"
 const val BUILD_TARGET_CUSTOM_SOURCE = "custom_source"
 const val BUILD_TARGET_ONEPLUS = "oneplus"
+const val BUILD_TARGET_G_STYLUS = "g_stylus"
 const val SOURCE_ACCESS_PUBLIC = "public"
 const val SOURCE_ACCESS_GITHUB_PRIVATE = "github_private"
 
@@ -612,13 +614,21 @@ val KSU_VARIANT_OPTIONS = listOf(
     KSU_VARIANT_OFFICIAL,
     KSU_VARIANT_SUKISU,
     KSU_VARIANT_BAKASU,
+    KSU_VARIANT_NEXT,
     KSU_VARIANT_NONE
 )
 val ONEPLUS_KSU_VARIANT_OPTIONS = listOf(
     KSU_VARIANT_OFFICIAL,
     KSU_VARIANT_SUKISU,
     KSU_VARIANT_BAKASU,
+    KSU_VARIANT_NEXT,
     KSU_VARIANT_NONE
+)
+val GSTYLUS_KSU_VARIANT_OPTIONS = listOf(
+    KSU_VARIANT_OFFICIAL,
+    KSU_VARIANT_SUKISU,
+    KSU_VARIANT_BAKASU,
+    KSU_VARIANT_NEXT
 )
 
 // App-level build config model (mirrors kernel-custom.yml inputs)
@@ -643,6 +653,8 @@ data class KernelBuildConfig(
     val buildTime: String = "",
     val useZram: Boolean = false,
     val useBbg: Boolean = false,
+    val useZeromount: Boolean = false,
+    val useNethunter: Boolean = false,
     val useDdk: Boolean = false,
     val useNtsync: Boolean = false,
     val useNetworking: Boolean = false,
@@ -662,7 +674,13 @@ data class KernelBuildConfig(
     val onePlusUseLz4kd: Boolean = false,
     val onePlusUseBbr: Boolean = false,
     val onePlusUseProxyOptimization: Boolean = true,
-    val onePlusUseUnicodeBypass: Boolean = false
+    val onePlusUseUnicodeBypass: Boolean = false,
+    val gStylusCpu: String = "sm6450_v1-2023-5g",
+    val gStylusDeviceManifest: String = "sm6450-genevn-2023",
+    val gStylusUseLz4kd: Boolean = false,
+    val gStylusUseBbr: Boolean = false,
+    val gStylusUseProxyOptimization: Boolean = true,
+    val gStylusUseUnicodeBypass: Boolean = false
 )
 
 data class AbkRuntimeStatus(
