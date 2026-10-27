@@ -78,6 +78,7 @@ import com.abk.kernel.data.model.KSU_BRANCH_STABLE
 import com.abk.kernel.data.model.KSU_VARIANT_NONE
 import com.abk.kernel.data.model.KSU_VARIANT_BAKASU
 import com.abk.kernel.data.model.KSU_VARIANT_SUKISU
+import com.abk.kernel.data.model.KSU_VARIANT_NEXT
 import com.abk.kernel.data.model.ModuleCatalogItem
 import com.abk.kernel.data.model.ModuleCatalogItemKind
 import com.abk.kernel.data.model.ModuleCatalogRepository
