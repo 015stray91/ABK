@@ -1,0 +1,128 @@
+name: Motorola Kernel Build - Custom
+
+permissions:
+  contents: write
+  actions: write
+
+on:
+  workflow_dispatch:
+    inputs:
+      cpu:
+        description: "Motorola/moto_g_stylus_5g 2023"
+        required: true
+        type: choice
+        options:
+          - sm8450-
+          - sm7435-
+          - sm6450_v1-2023-5g
+          - sm6450_v2-2024-5g
+          - sm6475_a/b-2025-5g
+          - sm6475_a/b-2026-5g
+        default: sm6450_v1-2023-5g
+      device_manifest:
+        description: "ABK Model Config (Value corresponds to upstream XML name; build summary explicitly displays system version)"
+        required: true
+        type: choice
+        
+          - sm6450-genevn-2023
+          - sm6450-boston-2024
+          - sm6475_ab-houston-2025
+          - sm6475_ab-dallas-2026
+        default: 
+      android_version:  sm6450-genevn-2023
+      description: "Kernel Android KMI Version"
+      required: true
+      type: choice
+      options:
+          - android16
+          - android15
+          - android14
+          - android13
+          - android12-11_v2
+          - android12-9_v1
+    default: android12-9_v1
+     kernel_version:
+        description: "Kernel Version"
+        required: true
+        type: choice
+        options:
+          - "6.12"
+          - "6.6"
+          - "6.1"
+          - "5.15"
+          - "5.10_v2"
+          - "5.10_v1"
+        default: "5.10_v1"
+      ksu_variant:
+        description: "KernelSU Variant"
+        required: true
+        type: choice
+        options:
+          - Official
+          - SukiSU
+          - BakaSU
+          - KSU-NEXT
+        default: Ksu-Next
+      enable_susfs:
+        description: "Enable SUSFS (android12-9, android14/6.1, android15/6.6, android16/6.12)"
+        required: false
+        type: boolean
+        default: false
+      use_kpm:
+        description: "Enable KPM (SukiSU/BakaSU/?Ksu-Next only)"
+        required: false
+        type: boolean
+        default: false
+      use_lz4kd:
+        description: "Enable lz4kd"
+        required: false
+        type: boolean
+        default: false
+      use_bbg:
+        description: "Enable BBG Baseband Protection"
+        required: false
+        type: boolean
+        default: true
+      use_bbr:
+        description: "Enable BBR"
+        required: false
+        type: boolean
+        default: false
+      use_proxy_optimization:
+        description: "Enable proxy-related network optimizations (Turn off for MTK)"
+        required: false
+        type: boolean
+        default: true
+      use_unicode_bypass:
+        description: "Enable Unicode zero-width bypass fix"
+        required: false
+        type: boolean
+        default: false
+
+jobs:
+  get-manager:
+    name: Upload Manager and SUSFS Module
+    if: ${{ inputs.ksu_variant != 'None' }}
+    uses: ./.github/workflows/get-manager.yml
+    secrets: inherit
+    with:
+      kernelsu_variant: ${{ inputs.ksu_variant }}
+
+  build-motorola-kernel:
+    name: "${{ inputs.device_manifest }}-${{ inputs.kernel_version }}-${{ inputs.ksu_variant }}"
+    uses: ./.github/workflows/g_stylus-custom.yml
+    secrets: inherit
+    with:
+      cpu: ${{ inputs.cpu }}
+      device_manifest: ${{ inputs.device_manifest }}
+      android_version: ${{ inputs.android_version }}
+      kernel_version: ${{ inputs.kernel_version }}
+      ksu_variant: ${{ inputs.ksu_variant }}
+      enable_susfs: ${{ inputs.enable_susfs }}
+      use_kpm: ${{ inputs.use_kpm }}
+      use_lz4kd: ${{ inputs.use_lz4kd }}
+      use_bbg: ${{ inputs.use_bbg }}
+      use_bbr: ${{ inputs.use_bbr }}
+      use_proxy_optimization: ${{ inputs.use_proxy_optimization }}
+      use_unicode_bypass: ${{ inputs.use_unicode_bypass }}
+   
