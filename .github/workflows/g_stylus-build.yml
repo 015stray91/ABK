@@ -491,6 +491,32 @@ jobs:
           make -j"$(nproc --all)" LLVM=1 LLVM_IAS=1 ARCH=arm64 \
             CC="ccache clang" LD=ld.lld HOSTLD=ld.lld O=out Image.gz modules
 
+      - name: NUKI techpack modules (M=)
+        shell: bash
+        run: |
+          set -euo pipefail
+          KROOT="$GITHUB_WORKSPACE/genevn_workspace/kernel"
+          SDC="$GITHUB_WORKSPACE/genevn_workspace/tools/clang/host/linux-x86/clang-r416183b"
+          cd "$KROOT"
+          export PATH="/usr/lib/ccache:$SDC/bin:$PATH"
+          export LD_LIBRARY_PATH="/lib/x86_64-linux-gnu:/usr/lib/x86_64-linux-gnu"
+          # Vendor warning set (QCOM ships these; clang lacks -Wmaybe-uninitialized
+          # so the gcc-only 6th flag stays local-only, see NUKI notation)
+          KCFLAGS_TECHPACK="-Wno-error=format -Wno-error=format-extra-args -Wno-error=unused-variable -Wno-error=implicit-fallthrough -Wframe-larger-than=4096"
+          for tp in audio camera cvp datarmnet datarmnet-ext display eva mmrm video; do
+            echo "NUKI M= techpack/$tp"
+            make -j"$(nproc --all)" LLVM=1 LLVM_IAS=1 ARCH=arm64 \
+              CC="ccache clang" LD=ld.lld HOSTLD=ld.lld O=out M=techpack/$tp \
+              KCFLAGS="$KCFLAGS_TECHPACK" modules 2>&1 | tee -a "$GITHUB_WORKSPACE/kernel-build.log"
+          done
+          mkdir -p "$GITHUB_WORKSPACE/nuki-modules"
+          make LLVM=1 LLVM_IAS=1 ARCH=arm64 O=out INSTALL_MOD_PATH="$GITHUB_WORKSPACE/nuki-modules" INSTALL_MOD_STRIP=1 modules_install 2>&1 | tail -2
+          for tp in audio camera cvp datarmnet datarmnet-ext display eva mmrm video; do
+            make LLVM=1 LLVM_IAS=1 ARCH=arm64 O=out M=techpack/$tp INSTALL_MOD_PATH="$GITHUB_WORKSPACE/nuki-modules" INSTALL_MOD_STRIP=1 modules_install 2>&1 | tail -1
+          done
+          find "$GITHUB_WORKSPACE/nuki-modules" -name '*.ko' | tee "$GITHUB_WORKSPACE/nuki-modules-list.txt" | wc -l
+          echo "NUKI_MODULES_DIR=$GITHUB_WORKSPACE/nuki-modules" >> "$GITHUB_ENV"
+
       - name: 打包 AnyKernel3 (genevn)
         shell: bash
         run: |
@@ -539,3 +565,12 @@ jobs:
           name: ${{ env.GENEVN_IMAGE_ARTIFACT_NAME }}
           path: genevn_workspace/kernel/out/arch/arm64/boot/Image.gz
           if-no-files-found: warn
+
+      - name: 上传 NUKI modules
+        uses: actions/upload-artifact@v6
+        with:
+          name: ${{ env.GENEVN_ARTIFACT_NAME }}_modules
+          path: |
+            nuki-modules/
+            nuki-modules-list.txt
+          if-no-files-found: error
