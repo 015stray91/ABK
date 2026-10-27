@@ -448,9 +448,17 @@ jobs:
           export KBUILD_BUILD_HOST="abk"
           export KBUILD_BUILD_VERSION=1
           make -j"$(nproc --all)" LLVM=1 LLVM_IAS=1 ARCH=arm64 \
-            CC="ccache clang" LD=ld.lld HOSTLD=ld.lld O=out Image.gz modules
+            CC="ccache clang" LD=ld.lld HOSTLD=ld.lld O=out Image.gz modules 2>&1 | tee "$GITHUB_WORKSPACE/kernel-build.log"
           ccache -s || true
           ls -la out/arch/arm64/boot/Image.gz
+
+      - name: 上传编译日志 (失败时)
+        if: failure()
+        uses: actions/upload-artifact@v6
+        with:
+          name: kernel-build-log
+          path: ${{ github.workspace }}/kernel-build.log
+          retention-days: 7
 
       - name: OB 后处理 (regular 构造后逐段混淆)
         shell: bash

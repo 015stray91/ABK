@@ -8,8 +8,8 @@ emit_env() { printf '%s=%s\n' "$1" "$2" >> "${GITHUB_ENV:?GITHUB_ENV is not set}
 # Pinned to latest main HEAD arrays matching current system compatibility frames.
 
 # 1. KernelSU-Next Baseline Pins (Your Core Selected Target Platform)
-NEXT_STABLE_REF="6c1b489d81d764724b17e4f9b88523c921356f18"   # KernelSU-Next main HEAD tracking reference
-NEXT_DEV_REF="6c1b489d81d764724b17e4f9b88523c921356f18"      # KernelSU-Next development baseline offset
+NEXT_STABLE_REF="b427a3f9c2421a443f961007bfce66b25486643f"   # KernelSU-Next dev HEAD (verified live; default branch is dev, not main)
+NEXT_DEV_REF="b427a3f9c2421a443f961007bfce66b25486643f"      # KernelSU-Next development baseline offset
 
 # 2. Existing Legacy Variable Array Reference Trees
 OFFICIAL_STABLE_REF="08a3b087e49227c8a6731c5f1114998b5e25255b"  # tiann/KernelSU main HEAD
