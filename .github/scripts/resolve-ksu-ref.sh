@@ -1,3 +1,6 @@
+# Emit KEY=VALUE into the GitHub Actions step environment.
+emit_env() { printf '%s=%s\n' "$1" "$2" >> "${GITHUB_ENV:?GITHUB_ENV is not set}"; }
+
 # ==================== ADVANCED ARCHITECTURE TRACKING BASELINES ====================
 # Stable / Dev = Static pinned commit layers targeting the tracking repositories.
 # Pinned commits guarantee reproducible compilation matrices without API feature breaks.

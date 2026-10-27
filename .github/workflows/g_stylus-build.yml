@@ -92,7 +92,7 @@ on:
       manifest_file:
         required: false
         type: string
-        default: anyrealm-genevn.xml
+        default: default.xml
       ob_segments:
         required: false
         type: string
